@@ -1,0 +1,49 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "quickbase-extract"
+version = "0.1.0"
+description = "Extract and cache Quickbase report data with built-in error handling and S3 support"
+readme = "README.md"
+requires-python = ">=3.12"
+license = {text = "MIT"}
+authors = [
+    {name = "Tyler Brezler", email = "tbrezler@gmail.com"},
+]
+keywords = ["quickbase", "data-extraction", "caching", "etl"]
+
+dependencies = [
+    "quickbase-api>=0.1.0",
+    "boto3>=1.26.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "black>=23.0",
+    "ruff>=0.1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/tbrezler/quickbase-extract"
+Repository = "https://github.com/tbrezler/quickbase-extract.git"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/quickbase_extract"]
+
+[tool.black]
+line-length = 120
+target-version = ['py312']
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+select = ["E", "F", "W", "I", "UP", "N", "C4", "BLE", "A"]
+ignore = ["E501"]
+
+[tool.flake8]
+max-line-length = 120
+extend-ignore = ["E203", "W503"]
