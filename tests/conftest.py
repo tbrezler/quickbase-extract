@@ -1,0 +1,191 @@
+"""Pytest configuration and shared fixtures."""
+
+from unittest.mock import MagicMock
+
+import pytest
+
+
+@pytest.fixture
+def temp_cache_dir(tmp_path):
+    """Create a temporary cache directory for testing."""
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    return cache_dir
+
+
+@pytest.fixture
+def mock_qb_api():
+    """Create a mock Quickbase API client."""
+    client = MagicMock()
+
+    # Mock get_table_id
+    client.get_table_id.return_value = "tblXYZ123"
+
+    # Mock get_field_label_id_map
+    client.get_field_label_id_map.return_value = {
+        "Record ID#": "3",
+        "Name": "6",
+        "Email": "7",
+        "Status": "8",
+    }
+
+    # Mock get_reports
+    client.get_reports.return_value = [
+        {"id": "rptABC123", "name": "Python"},
+        {"id": "rptDEF456", "name": "Default"},
+    ]
+
+    # Mock get_report
+    client.get_report.return_value = {
+        "id": "rptABC123",
+        "name": "Python",
+        "query": {
+            "fields": [3, 6, 7, 8],
+            "sortBy": [{"fieldId": 6, "order": "ASC"}],
+            "filter": "{8.EX.'Active'}",
+        },
+    }
+
+    # Mock query_for_data
+    client.query_for_data.return_value = {
+        "data": [
+            {
+                "3": {"value": "1"},
+                "6": {"value": "Alice"},
+                "7": {"value": "alice@example.com"},
+                "8": {"value": "Active"},
+            },
+            {
+                "3": {"value": "2"},
+                "6": {"value": "Bob"},
+                "7": {"value": "bob@example.com"},
+                "8": {"value": "Active"},
+            },
+        ]
+    }
+
+    # Mock upsert_records
+    client.upsert_records.return_value = {
+        "metadata": {
+            "createdRecordIds": ["1"],
+            "updatedRecordIds": ["2"],
+            "unchangedRecordIds": [],
+        }
+    }
+
+    # Mock delete_records
+    client.delete_records.return_value = 5
+
+    return client
+
+
+@pytest.fixture
+def sample_report_configs():
+    """Sample report configurations."""
+    return [
+        {
+            "Description": "Test Report",
+            "App": "Test App",
+            "App ID": "appXYZ123",
+            "Table": "Test Table",
+            "Report": "Python",
+        },
+        {
+            "Description": "Another Report",
+            "App": "Test App",
+            "App ID": "appXYZ123",
+            "Table": "Another Table",
+            "Report": "Python",
+        },
+    ]
+
+
+@pytest.fixture
+def sample_report_metadata():
+    """Sample report metadata structure."""
+    return {
+        "app_name": "test_app",
+        "table_name": "test_table",
+        "table_id": "tblXYZ123",
+        "field_label": {
+            "Record ID#": "3",
+            "Name": "6",
+            "Email": "7",
+            "Status": "8",
+        },
+        "report_name": "python",
+        "report_id": "rptABC123",
+        "report": {
+            "id": "rptABC123",
+            "name": "Python",
+            "query": {
+                "fields": [3, 6, 7, 8],
+                "sortBy": [{"fieldId": 6, "order": "ASC"}],
+                "filter": "{8.EX.'Active'}",
+            },
+        },
+        "fields": [3, 6, 7, 8],
+        "filter": "{8.EX.'Active'}",
+    }
+
+
+@pytest.fixture
+def sample_report_data():
+    """Sample report data (raw from API)."""
+    return [
+        {
+            "3": {"value": "1"},
+            "6": {"value": "Alice"},
+            "7": {"value": "alice@example.com"},
+            "8": {"value": "Active"},
+        },
+        {
+            "3": {"value": "2"},
+            "6": {"value": "Bob"},
+            "7": {"value": "bob@example.com"},
+            "8": {"value": "Active"},
+        },
+    ]
+
+
+@pytest.fixture
+def sample_transformed_data():
+    """Sample report data after transformation (field labels as keys)."""
+    return [
+        {
+            "Record ID#": "1",
+            "Name": "Alice",
+            "Email": "alice@example.com",
+            "Status": "Active",
+        },
+        {
+            "Record ID#": "2",
+            "Name": "Bob",
+            "Email": "bob@example.com",
+            "Status": "Active",
+        },
+    ]
+
+
+@pytest.fixture(autouse=True)
+def monkeypatch_env(monkeypatch):
+    """Clear AWS/Lambda env vars by default."""
+    monkeypatch.delenv("AWS_LAMBDA_FUNCTION_NAME", raising=False)
+    monkeypatch.delenv("CACHE_BUCKET", raising=False)
+    monkeypatch.delenv("ENV", raising=False)
+    monkeypatch.delenv("QUICKBASE_CACHE_ROOT", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def caplog_setup(caplog):
+    """Ensure logging is captured for all tests."""
+    caplog.set_level("DEBUG")
+
+
+@pytest.fixture(autouse=True)
+def reset_cache_manager_singleton():
+    """Reset cache manager singleton before each test."""
+    from quickbase_extract.cache_manager import _reset_cache_manager
+
+    yield
+    _reset_cache_manager()

@@ -50,18 +50,17 @@ class CacheManager:
         """Get path for report metadata file.
 
         Args:
-            app_name: Application name.
+            app_name: Application name (not used in path, kept for API compatibility).
             table_name: Table name.
             report_name: Report name.
 
         Returns:
             Path object for the metadata file.
         """
-        app_fmt = app_name.lower().replace(" ", "_")
         table_fmt = table_name.lower().replace(" ", "_")
         report_fmt = report_name.lower().replace(" ", "_")
 
-        path = self.cache_root / "report_metadata" / app_fmt / f"{table_fmt}_{report_fmt}.json"
+        path = self.cache_root / "report_metadata" / f"{table_fmt}_{report_fmt}.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         return path
 
@@ -69,20 +68,17 @@ class CacheManager:
         """Get path for report data file.
 
         Args:
-            app_name: Application name.
+            app_name: Application name (not used in path, kept for API compatibility).
             table_name: Table name.
             report_name: Report name.
 
         Returns:
             Path object for the data file.
         """
-        app_fmt = app_name.lower().replace(" ", "_")
         table_fmt = table_name.lower().replace(" ", "_")
         report_fmt = report_name.lower().replace(" ", "_")
 
-        path = (
-            self.cache_root / "report_data" / app_fmt / f"{table_fmt}_{report_fmt}_data.json"
-        )
+        path = self.cache_root / "report_data" / f"{table_fmt}_{report_fmt}_data.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         return path
 
@@ -187,6 +183,8 @@ def get_cache_manager(cache_root: Path = None) -> CacheManager:
 
     Args:
         cache_root: Optional path to cache root. Only used on first call.
+            Subsequent calls with different cache_root will return the existing
+            instance (cache_root parameter is ignored on subsequent calls).
 
     Returns:
         Singleton CacheManager instance.
@@ -195,3 +193,9 @@ def get_cache_manager(cache_root: Path = None) -> CacheManager:
     if _cache_manager is None:
         _cache_manager = CacheManager(cache_root=cache_root)
     return _cache_manager
+
+
+def _reset_cache_manager() -> None:
+    """Reset the singleton cache manager. For testing only."""
+    global _cache_manager
+    _cache_manager = None

@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from quickbase_extract.api_handlers import handle_query
 from quickbase_extract.cache_manager import get_cache_manager
-from quickbase_extract.utils import find_report, normalize_name
+from quickbase_extract.utils import find_report
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +74,7 @@ def get_data(
     table_name = report["Table"]
     report_name = report["Report"]
 
-    # Load cached metadata
+    # Load and validate cached metadata exists
     try:
         info = load_report_metadata(report_desc, report_configs, cache_root=cache_root)
     except FileNotFoundError:
@@ -187,8 +187,6 @@ def load_data(report_desc: str, report_configs: list[dict], cache_root=None) -> 
     data_path = cache_mgr.get_data_path(app_name, table_name, report_name)
 
     if not data_path.exists():
-        raise FileNotFoundError(
-            f"Cached data not found for '{report_desc}'. Expected: {data_path}"
-        )
+        raise FileNotFoundError(f"Cached data not found for '{report_desc}'. Expected: {data_path}")
 
     return json.loads(cache_mgr.read_file(data_path))
