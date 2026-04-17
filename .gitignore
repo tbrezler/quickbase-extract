@@ -32,9 +32,6 @@ build/
 .coverage
 htmlcov/
 
-# Python version manager
-.python-version
-
 # Editable install metadata
 src/*.egg-info/
 
