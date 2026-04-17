@@ -9,16 +9,13 @@ import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from quickbase_extract.api_handlers import handle_query
 from quickbase_extract.cache_manager import get_cache_manager
 from quickbase_extract.utils import find_report, normalize_name
 
 logger = logging.getLogger(__name__)
 
 
-def get_report_metadata(
-    client, app_name: str, app_id: str, table_name: str, report_name: str, cache_root=None
-) -> None:
+def get_report_metadata(client, report_config: dict, cache_root=None) -> None:
     """Fetch and cache table/report metadata from Quickbase.
 
     Queries Quickbase for table ID, field mappings, report configuration,
@@ -26,15 +23,17 @@ def get_report_metadata(
 
     Args:
         client: Quickbase API client.
-        app_name: The Quickbase app name.
-        app_id: The Quickbase app ID.
-        table_name: The name of the table being queried.
-        report_name: The name of the report being used.
+        report_config: Dict with keys: App, App ID, Table, Report.
         cache_root: Optional cache root path. If not provided, uses CacheManager default.
 
     Raises:
         Exception: If any Quickbase API call fails.
     """
+    app_name = normalize_name(report_config["App"])
+    app_id = report_config["App ID"]
+    table_name = normalize_name(report_config["Table"])
+    report_name = normalize_name(report_config["Report"])
+
     logger.info(f"Fetching {app_name}: {table_name} - {report_name}")
 
     table_id = client.get_table_id(app_id, table_name=table_name)
@@ -45,8 +44,7 @@ def get_report_metadata(
     if not report_id:
         available = [r["name"] for r in reports]
         raise ValueError(
-            f"Report '{report_name}' not found in table '{table_name}'. "
-            f"Available reports: {available}"
+            f"Report '{report_name}' not found in table '{table_name}'. " f"Available reports: {available}"
         )
 
     report = client.get_report(table_id, report_id=report_id)
@@ -54,11 +52,11 @@ def get_report_metadata(
     filter_str = report["query"]["filter"]
 
     report_md = {
-        "app_name": normalize_name(app_name),
-        "table_name": normalize_name(table_name),
+        "app_name": app_name,
+        "table_name": table_name,
         "table_id": table_id,
         "field_label": field_label,
-        "report_name": normalize_name(report_name),
+        "report_name": report_name,
         "report_id": report_id,
         "report": report,
         "fields": fields,
@@ -71,9 +69,7 @@ def get_report_metadata(
     cache_mgr.write_file(md_path, json.dumps(report_md, indent=4))
 
 
-def get_report_metadata_parallel(
-    client, report_configs: list[dict], cache_root=None
-) -> dict[str, dict]:
+def get_report_metadata_parallel(client, report_configs: list[dict], cache_root=None) -> None:
     """Fetch multiple report metadata in parallel.
 
     Args:
@@ -81,24 +77,16 @@ def get_report_metadata_parallel(
         report_configs: List of dicts with keys: App, App ID, Table, Report.
         cache_root: Optional cache root path. If not provided, uses CacheManager default.
 
-    Returns:
-        Dict mapping "app:table:report" -> metadata dict.
-
     Raises:
         First exception encountered during parallel execution (fail-fast).
     """
-    results = {}
-
     with ThreadPoolExecutor(max_workers=8) as executor:
         # Submit all tasks
         future_to_config = {
             executor.submit(
                 get_report_metadata,
                 client,
-                r["App"],
-                r["App ID"],
-                r["Table"],
-                r["Report"],
+                r,
                 cache_root,
             ): f"{r['App']}:{r['Table']}:{r['Report']}"
             for r in report_configs
@@ -116,7 +104,53 @@ def get_report_metadata_parallel(
                 logger.error(f"Failed to fetch metadata for {config_key}: {e}")
                 raise
 
-    return results
+
+def load_report_metadata(report_desc: str, report_configs: list[dict], cache_root=None) -> dict:
+    """Load cached report metadata from disk.
+
+    Args:
+        report_desc: Unique description of a specific table report.
+        report_configs: List of report configuration dicts (used to find matching report).
+        cache_root: Optional cache root path. If not provided, uses CacheManager default.
+
+    Returns:
+        Dict containing table ID, field mappings, report config, and filter.
+
+    Raises:
+        ValueError: If no report matches the description.
+        FileNotFoundError: If cached metadata does not exist.
+    """
+    report = find_report(report_configs, report_desc)
+
+    cache_mgr = get_cache_manager(cache_root=cache_root)
+    md_path = cache_mgr.get_metadata_path(report["App"], report["Table"], report["Report"])
+
+    if not md_path.exists():
+        raise FileNotFoundError(
+            f"Report metadata not found for '{report_desc}'. " f"Run refresh_all() first. Expected: {md_path}"
+        )
+
+    return json.loads(cache_mgr.read_file(md_path))
+
+
+def load_report_metadata_parallel(report_configs, cache_root=None) -> dict:
+    """Load metadata for all reports from cache.
+
+    Args:
+        report_configs: List of report configuration dicts.
+        cache_root: Optional cache root path.
+
+    Returns:
+        Dict mapping report descriptions to their metadata.
+
+    Raises:
+        FileNotFoundError: If any report metadata is not cached.
+    """
+    metadata = {}
+    for config in report_configs:
+        report_desc = config["Description"]
+        metadata[report_desc] = load_report_metadata(report_desc, report_configs, cache_root=cache_root)
+    return metadata
 
 
 def refresh_all(client, report_configs: list[dict], cache_root=None) -> None:
@@ -139,38 +173,3 @@ def refresh_all(client, report_configs: list[dict], cache_root=None) -> None:
 
     elapsed = round(time.time() - report_md_start, 3)
     logger.info(f"Report metadata refresh time: {elapsed}s")
-
-
-def load_report_metadata(
-    report_desc: str, report_configs: list[dict], cache_root=None
-) -> dict:
-    """Load cached report metadata from disk.
-
-    Args:
-        report_desc: Unique description of a specific table report.
-        report_configs: List of report configuration dicts (used to find matching report).
-        cache_root: Optional cache root path. If not provided, uses CacheManager default.
-
-    Returns:
-        Dict containing table ID, field mappings, report config, and filter.
-
-    Raises:
-        ValueError: If no report matches the description.
-        FileNotFoundError: If cached metadata does not exist.
-    """
-    report = find_report(report_configs, report_desc)
-
-    app_name = normalize_name(report["App"])
-    table_name = normalize_name(report["Table"])
-    report_name = normalize_name(report["Report"])
-
-    cache_mgr = get_cache_manager(cache_root=cache_root)
-    md_path = cache_mgr.get_metadata_path(report["App"], report["Table"], report["Report"])
-
-    if not md_path.exists():
-        raise FileNotFoundError(
-            f"Report metadata not found for '{report_desc}'. "
-            f"Run refresh_all() first. Expected: {md_path}"
-        )
-
-    return json.loads(cache_mgr.read_file(md_path))
