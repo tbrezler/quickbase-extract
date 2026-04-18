@@ -1,7 +1,9 @@
 """Integration tests for cache_freshness module."""
 
+import os
 import time
 
+import pytest
 from quickbase_extract.cache_freshness import check_cache_freshness, get_cache_files, get_cache_summary
 
 
@@ -25,7 +27,6 @@ class TestGetCacheFiles:
 
         assert len(files) == 1
         assert files[0]["file"] == "report_data/app/test_data.json"
-        # Size will be 16 (includes newline from write_text or JSON encoding)
         assert files[0]["size_bytes"] > 0
 
     def test_get_multiple_files(self, temp_cache_dir):
@@ -46,10 +47,8 @@ class TestGetCacheFiles:
         assert "report_data/app1/data1.json" in file_names
         assert "report_metadata/app2/meta.json" in file_names
 
-    def test_files_sorted_by_age(self, temp_cache_dir):
-        """Test that files are sorted by age (oldest first)."""
-        import os
-
+    def test_files_sorted_by_age_descending(self, temp_cache_dir):
+        """Test that files are sorted by age descending (oldest first)."""
         # Create first file
         file1 = temp_cache_dir / "report_data" / "app" / "old.json"
         file1.parent.mkdir(parents=True)
@@ -87,11 +86,56 @@ class TestGetCacheFiles:
         assert "modified" in file_info
         assert "age_hours" in file_info
 
+    def test_nonexistent_cache_dir_raises_error(self, temp_cache_dir):
+        """Test error when cache directory doesn't exist."""
+        nonexistent = temp_cache_dir / "nonexistent"
+
+        with pytest.raises(FileNotFoundError, match="Cache directory does not exist"):
+            get_cache_files(cache_root=nonexistent)
+
+    def test_cache_path_not_directory_raises_error(self, temp_cache_dir):
+        """Test error when cache path is a file, not directory."""
+        file_path = temp_cache_dir / "not_a_dir.txt"
+        file_path.write_text("content")
+
+        with pytest.raises(NotADirectoryError, match="not a directory"):
+            get_cache_files(cache_root=file_path)
+
+    def test_handles_inaccessible_files_gracefully(self, temp_cache_dir, caplog, monkeypatch):
+        """Test that inaccessible files are logged and skipped."""
+        # Create a normal file
+        file1 = temp_cache_dir / "report_data" / "app" / "accessible.json"
+        file1.parent.mkdir(parents=True)
+        file1.write_text('{"data": 1}')
+
+        # Create another file
+        file2 = temp_cache_dir / "report_data" / "app" / "problem.json"
+        file2.write_text('{"data": 2}')
+
+        # Mock Path.stat to fail for the problem file
+        import pathlib
+
+        original_stat = pathlib.Path.stat
+
+        def failing_stat(self, *, follow_symlinks=True):
+            if self.name == "problem.json":
+                raise OSError("Permission denied")
+            return original_stat(self, follow_symlinks=follow_symlinks)
+
+        monkeypatch.setattr(pathlib.Path, "stat", failing_stat)
+
+        files = get_cache_files(cache_root=temp_cache_dir)
+
+        # Should get the accessible file, skip the problem file
+        assert len(files) == 1
+        assert files[0]["file"] == "report_data/app/accessible.json"
+        assert "Failed to stat file" in caplog.text
+
 
 class TestCheckCacheFreshness:
     """Tests for check_cache_freshness function."""
 
-    def test_all_fresh_cache(self, temp_cache_dir):
+    def test_all_fresh_cache(self, temp_cache_dir, caplog):
         """Test when all cache files are fresh."""
         # Create recent file
         test_file = temp_cache_dir / "report_data" / "app" / "fresh.json"
@@ -101,8 +145,9 @@ class TestCheckCacheFreshness:
         stale = check_cache_freshness(threshold_hours=24, cache_root=temp_cache_dir)
 
         assert stale == []
+        assert "files are fresh" in caplog.text
 
-    def test_identify_stale_cache(self, temp_cache_dir):
+    def test_identify_stale_cache(self, temp_cache_dir, caplog):
         """Test identifying stale cache files."""
         # Create old file (manually set old mtime)
         test_file = temp_cache_dir / "report_data" / "app" / "old.json"
@@ -111,14 +156,13 @@ class TestCheckCacheFreshness:
 
         # Set modification time to 48 hours ago
         old_mtime = time.time() - (48 * 3600)
-        import os
-
         os.utime(test_file, (old_mtime, old_mtime))
 
         stale = check_cache_freshness(threshold_hours=24, cache_root=temp_cache_dir)
 
         assert len(stale) == 1
         assert stale[0]["file"] == "report_data/app/old.json"
+        assert "Found 1 stale cache files" in caplog.text
 
     def test_custom_threshold(self, temp_cache_dir):
         """Test using custom staleness threshold."""
@@ -129,8 +173,6 @@ class TestCheckCacheFreshness:
 
         # Set to 10 hours old
         old_mtime = time.time() - (10 * 3600)
-        import os
-
         os.utime(test_file, (old_mtime, old_mtime))
 
         # Should be fresh with 24-hour threshold
@@ -141,11 +183,12 @@ class TestCheckCacheFreshness:
         stale_5 = check_cache_freshness(threshold_hours=5, cache_root=temp_cache_dir)
         assert len(stale_5) == 1
 
-    def test_empty_cache(self, temp_cache_dir):
+    def test_empty_cache(self, temp_cache_dir, caplog):
         """Test freshness check on empty cache."""
         stale = check_cache_freshness(cache_root=temp_cache_dir)
 
         assert stale == []
+        assert "0 cache files are fresh" in caplog.text or "files are fresh" in caplog.text
 
 
 class TestGetCacheSummary:
@@ -156,7 +199,7 @@ class TestGetCacheSummary:
         summary = get_cache_summary(cache_root=temp_cache_dir)
 
         assert summary["total_files"] == 0
-        assert summary["total_size_mb"] == 0
+        assert summary["total_size_mb"] == 0.0
         assert summary["oldest_file"] is None
         assert summary["newest_file"] is None
 

@@ -104,28 +104,30 @@ def sample_report_configs():
 def sample_report_metadata():
     """Sample report metadata structure."""
     return {
-        "app_name": "test_app",
-        "table_name": "test_table",
-        "table_id": "tblXYZ123",
-        "field_label": {
-            "Record ID#": "3",
-            "Name": "6",
-            "Email": "7",
-            "Status": "8",
-        },
-        "report_name": "python",
-        "report_id": "rptABC123",
-        "report": {
-            "id": "rptABC123",
-            "name": "Python",
-            "query": {
-                "fields": [3, 6, 7, 8],
-                "sortBy": [{"fieldId": 6, "order": "ASC"}],
-                "filter": "{8.EX.'Active'}",
+        "Test Report": {
+            "app_name": "test_app",
+            "table_name": "test_table",
+            "table_id": "tblXYZ123",
+            "field_label": {
+                "Record ID#": "3",
+                "Name": "6",
+                "Email": "7",
+                "Status": "8",
             },
-        },
-        "fields": [3, 6, 7, 8],
-        "filter": "{8.EX.'Active'}",
+            "report_name": "python",
+            "report_id": "rptABC123",
+            "report": {
+                "id": "rptABC123",
+                "name": "Python",
+                "query": {
+                    "fields": [3, 6, 7, 8],
+                    "sortBy": [{"fieldId": 6, "order": "ASC"}],
+                    "filter": "{8.EX.'Active'}",
+                },
+            },
+            "fields": [3, 6, 7, 8],
+            "filter": "{8.EX.'Active'}",
+        }
     }
 
 
@@ -183,9 +185,14 @@ def caplog_setup(caplog):
 
 
 @pytest.fixture(autouse=True)
-def reset_cache_manager_singleton():
-    """Reset cache manager singleton before each test."""
+def reset_singletons():
+    """Reset all singleton instances before each test."""
     from quickbase_extract.cache_manager import _reset_cache_manager
+    from quickbase_extract.cache_sync import _reset_cache_sync
+    from quickbase_extract.client import _reset_client_cache
 
     yield
+
     _reset_cache_manager()
+    _reset_cache_sync()
+    _reset_client_cache()

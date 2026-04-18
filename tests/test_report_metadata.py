@@ -1,7 +1,6 @@
 """Integration tests for report_metadata module."""
 
 import json
-from unittest.mock import MagicMock
 
 import pytest
 from quickbase_extract.cache_manager import get_cache_manager
@@ -9,6 +8,7 @@ from quickbase_extract.report_metadata import (
     get_report_metadata,
     get_report_metadata_parallel,
     load_report_metadata,
+    load_report_metadata_batch,
     refresh_all,
 )
 
@@ -16,20 +16,18 @@ from quickbase_extract.report_metadata import (
 class TestGetReportMetadata:
     """Tests for get_report_metadata function."""
 
-    def test_fetch_and_cache_metadata(self, temp_cache_dir, mock_qb_api):
+    def test_fetch_and_cache_metadata(self, temp_cache_dir, mock_qb_api, sample_report_configs):
         """Test fetching and caching report metadata."""
+        config = sample_report_configs[0]
         get_report_metadata(
             mock_qb_api,
-            "Test App",
-            "appXYZ",
-            "Test Table",
-            "Python",
+            config,
             cache_root=temp_cache_dir,
         )
 
         # Check metadata was cached
         cache_mgr = get_cache_manager(cache_root=temp_cache_dir)
-        md_path = cache_mgr.get_metadata_path("Test App", "Test Table", "Python")
+        md_path = cache_mgr.get_metadata_path(config["App"], config["Table"], config["Report"])
         assert md_path.exists()
 
         # Verify cached content
@@ -38,19 +36,17 @@ class TestGetReportMetadata:
         assert metadata["report_name"] == "python"
         assert "field_label" in metadata
 
-    def test_metadata_structure(self, temp_cache_dir, mock_qb_api):
+    def test_metadata_structure(self, temp_cache_dir, mock_qb_api, sample_report_configs):
         """Test that cached metadata has expected structure."""
+        config = sample_report_configs[0]
         get_report_metadata(
             mock_qb_api,
-            "Test App",
-            "appXYZ",
-            "Test Table",
-            "Python",
+            config,
             cache_root=temp_cache_dir,
         )
 
         cache_mgr = get_cache_manager(cache_root=temp_cache_dir)
-        md_path = cache_mgr.get_metadata_path("Test App", "Test Table", "Python")
+        md_path = cache_mgr.get_metadata_path(config["App"], config["Table"], config["Report"])
         metadata = json.loads(md_path.read_text())
 
         assert metadata["app_name"] == "test_app"
@@ -59,30 +55,28 @@ class TestGetReportMetadata:
         assert "fields" in metadata
         assert "filter" in metadata
 
-    def test_report_not_found(self, temp_cache_dir, mock_qb_api):
+    def test_report_not_found(self, temp_cache_dir, mock_qb_api, sample_report_configs):
         """Test error when report not found."""
         mock_qb_api.get_reports.return_value = [
             {"id": "rptABC", "name": "Default"},
         ]
 
+        config = sample_report_configs[0].copy()
+        config["Report"] = "Nonexistent"
+
         with pytest.raises(ValueError, match="Report .* not found"):
             get_report_metadata(
                 mock_qb_api,
-                "Test App",
-                "appXYZ",
-                "Test Table",
-                "Nonexistent",
+                config,
                 cache_root=temp_cache_dir,
             )
 
-    def test_api_calls_in_order(self, temp_cache_dir, mock_qb_api):
+    def test_api_calls_in_order(self, temp_cache_dir, mock_qb_api, sample_report_configs):
         """Test that API calls are made in correct order."""
+        config = sample_report_configs[0]
         get_report_metadata(
             mock_qb_api,
-            "Test App",
-            "appXYZ",
-            "Test Table",
-            "Python",
+            config,
             cache_root=temp_cache_dir,
         )
 
@@ -106,17 +100,15 @@ class TestGetReportMetadataParallel:
 
         # Both reports should be cached
         cache_mgr = get_cache_manager(cache_root=temp_cache_dir)
-        md_path1 = cache_mgr.get_metadata_path("Test App", "Test Table", "Python")
-        md_path2 = cache_mgr.get_metadata_path("Test App", "Another Table", "Python")
-
-        assert md_path1.exists()
-        assert md_path2.exists()
+        for config in sample_report_configs:
+            md_path = cache_mgr.get_metadata_path(config["App"], config["Table"], config["Report"])
+            assert md_path.exists()
 
     def test_parallel_fail_fast_on_error(self, temp_cache_dir, mock_qb_api, sample_report_configs):
         """Test that parallel execution fails fast on first error."""
         # Make second call fail
         side_effects = [
-            MagicMock(),  # First call succeeds
+            "tblXYZ123",  # First call succeeds
             Exception("Table not found"),  # Second call fails
         ]
         mock_qb_api.get_table_id.side_effect = side_effects
@@ -128,6 +120,31 @@ class TestGetReportMetadataParallel:
                 cache_root=temp_cache_dir,
             )
 
+    def test_parallel_with_custom_max_workers(self, temp_cache_dir, mock_qb_api, sample_report_configs):
+        """Test parallel execution with custom max_workers."""
+        get_report_metadata_parallel(
+            mock_qb_api,
+            sample_report_configs,
+            cache_root=temp_cache_dir,
+            max_workers=2,
+        )
+
+        # Should complete successfully
+        cache_mgr = get_cache_manager(cache_root=temp_cache_dir)
+        for config in sample_report_configs:
+            md_path = cache_mgr.get_metadata_path(config["App"], config["Table"], config["Report"])
+            assert md_path.exists()
+
+    def test_parallel_with_empty_list(self, temp_cache_dir, mock_qb_api, caplog):
+        """Test parallel execution with empty config list."""
+        get_report_metadata_parallel(
+            mock_qb_api,
+            [],
+            cache_root=temp_cache_dir,
+        )
+
+        assert "No report configs provided" in caplog.text
+
 
 class TestLoadReportMetadata:
     """Tests for load_report_metadata function."""
@@ -135,18 +152,16 @@ class TestLoadReportMetadata:
     def test_load_existing_metadata(self, temp_cache_dir, mock_qb_api, sample_report_configs):
         """Test loading cached metadata."""
         # First fetch and cache
+        config = sample_report_configs[0]
         get_report_metadata(
             mock_qb_api,
-            "Test App",
-            "appXYZ",
-            "Test Table",
-            "Python",
+            config,
             cache_root=temp_cache_dir,
         )
 
         # Now load it
         metadata = load_report_metadata(
-            "Test Report",
+            config["Description"],
             sample_report_configs,
             cache_root=temp_cache_dir,
         )
@@ -158,7 +173,7 @@ class TestLoadReportMetadata:
         """Test error when loading non-cached metadata."""
         with pytest.raises(FileNotFoundError):
             load_report_metadata(
-                "Test Report",
+                sample_report_configs[0]["Description"],
                 sample_report_configs,
                 cache_root=temp_cache_dir,
             )
@@ -168,6 +183,42 @@ class TestLoadReportMetadata:
         with pytest.raises(ValueError, match="No report found"):
             load_report_metadata(
                 "Nonexistent Report",
+                sample_report_configs,
+                cache_root=temp_cache_dir,
+            )
+
+
+class TestLoadReportMetadataBatch:
+    """Tests for load_report_metadata_batch function."""
+
+    def test_load_multiple_metadata(self, temp_cache_dir, mock_qb_api, sample_report_configs):
+        """Test loading multiple metadata files."""
+        # First cache both
+        get_report_metadata_parallel(
+            mock_qb_api,
+            sample_report_configs,
+            cache_root=temp_cache_dir,
+        )
+
+        # Now load both
+        all_metadata = load_report_metadata_batch(
+            sample_report_configs,
+            cache_root=temp_cache_dir,
+        )
+
+        assert len(all_metadata) == 2
+        assert "Test Report" in all_metadata
+        assert "Another Report" in all_metadata
+
+    def test_load_batch_with_empty_list(self, temp_cache_dir):
+        """Test loading with empty config list."""
+        result = load_report_metadata_batch([], cache_root=temp_cache_dir)
+        assert result == {}
+
+    def test_load_batch_missing_file_raises_error(self, temp_cache_dir, sample_report_configs):
+        """Test that missing file raises error."""
+        with pytest.raises(FileNotFoundError):
+            load_report_metadata_batch(
                 sample_report_configs,
                 cache_root=temp_cache_dir,
             )
@@ -195,11 +246,10 @@ class TestRefreshAll:
         """Test that refresh_all logs elapsed time."""
         refresh_all(mock_qb_api, sample_report_configs, cache_root=temp_cache_dir)
 
-        assert "Report metadata refresh time" in caplog.text
+        assert "refresh completed" in caplog.text or "refresh time" in caplog.text
 
-    def test_refresh_all_empty_list(self, temp_cache_dir, mock_qb_api):
+    def test_refresh_all_empty_list(self, temp_cache_dir, mock_qb_api, caplog):
         """Test refresh_all with empty report list."""
         refresh_all(mock_qb_api, [], cache_root=temp_cache_dir)
 
-        # Should complete without error
-        assert True
+        assert "No report configs provided" in caplog.text

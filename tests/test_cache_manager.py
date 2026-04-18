@@ -55,6 +55,10 @@ class TestCacheManagerInit:
         """Test that cache root is created if it doesn't exist."""
         nested_dir = temp_cache_dir / "nested" / "cache"
         assert not nested_dir.exists()
+
+        # Create CacheManager - this should create the directory
+        CacheManager(cache_root=nested_dir)
+
         assert nested_dir.exists()
 
     def test_init_s3_client_on_lambda(self, monkeypatch):
@@ -63,6 +67,8 @@ class TestCacheManagerInit:
         monkeypatch.setenv("CACHE_BUCKET", "my-bucket")
 
         with patch("quickbase_extract.cache_manager.boto3.client") as mock_boto:
+            # Create CacheManager - this should call boto3.client
+            CacheManager()
             mock_boto.assert_called_once_with("s3")
 
     def test_init_no_s3_client_locally(self, temp_cache_dir, monkeypatch):
@@ -70,6 +76,7 @@ class TestCacheManagerInit:
         monkeypatch.delenv("AWS_LAMBDA_FUNCTION_NAME", raising=False)
 
         with patch("quickbase_extract.cache_manager.boto3.client") as mock_boto:
+            CacheManager(cache_root=temp_cache_dir)
             mock_boto.assert_not_called()
 
 
@@ -84,8 +91,7 @@ class TestCacheManagerPaths:
 
         assert path.name == "my_table_python.json"
         assert "report_metadata" in str(path)
-        # No app subdirectory anymore
-        assert "my_app" not in str(path)
+        assert "my_app" in str(path)  # Now includes app subdirectory
 
     def test_get_data_path(self, temp_cache_dir):
         """Test data path generation."""
@@ -95,8 +101,7 @@ class TestCacheManagerPaths:
 
         assert path.name == "my_table_python_data.json"
         assert "report_data" in str(path)
-        # No app subdirectory anymore
-        assert "my_app" not in str(path)
+        assert "my_app" in str(path)  # Now includes app subdirectory
 
     def test_metadata_path_creates_parent_dirs(self, temp_cache_dir):
         """Test that metadata path creation makes parent directories."""
@@ -113,15 +118,14 @@ class TestCacheManagerPaths:
         assert path.parent.exists()
 
     def test_path_normalization(self, temp_cache_dir):
-        """Test that paths are normalized (spaces to underscores)."""
+        """Test that paths are normalized (spaces to underscores, lowercase)."""
         mgr = CacheManager(cache_root=temp_cache_dir)
 
         path = mgr.get_metadata_path("Data Lake", "Employee Appointments", "Aureus")
 
+        assert "data_lake" in str(path)  # App subdirectory
         assert "employee_appointments" in str(path)
         assert "aureus" in str(path)
-        # No data_lake subdirectory
-        assert "data_lake" not in str(path)
 
 
 class TestCacheManagerFileOperations:
@@ -238,6 +242,7 @@ class TestCacheManagerS3Sync:
             # Mock paginator response
             mock_paginator = MagicMock()
             mock_s3.get_paginator.return_value = mock_paginator
+            # The paginator returns a list of pages, each page has a "Contents" key
             mock_paginator.paginate.return_value = [
                 {
                     "Contents": [
@@ -289,16 +294,15 @@ class TestGetCacheManagerSingleton:
 
         assert mgr1 is mgr2
 
-    def test_singleton_initialization_once(self, temp_cache_dir):
-        """Test that CacheManager is only initialized once."""
-        get_cache_manager(cache_root=temp_cache_dir)
+    def test_singleton_cache_root_ignored_after_first_call(self, temp_cache_dir):
+        """Test that cache_root is ignored on subsequent calls."""
+        mgr1 = get_cache_manager(cache_root=temp_cache_dir)
 
-        # Second call should use cached instance
-        mgr2 = get_cache_manager(cache_root=temp_cache_dir / "other")
+        # Second call with different cache_root should return same instance
+        other_dir = temp_cache_dir / "other"
+        other_dir.mkdir()
+        mgr2 = get_cache_manager(cache_root=other_dir)
 
-        # cache_root should still be the original
-        assert mgr2.cache_root == temp_cache_dir
-        assert mgr2.cache_root == temp_cache_dir
-        assert mgr2.cache_root == temp_cache_dir
-        assert mgr2.cache_root == temp_cache_dir
+        # Should be same instance with original cache_root
+        assert mgr1 is mgr2
         assert mgr2.cache_root == temp_cache_dir

@@ -6,6 +6,8 @@ from pathlib import Path
 
 import boto3
 
+from quickbase_extract.utils import normalize_name
+
 logger = logging.getLogger(__name__)
 
 
@@ -16,7 +18,7 @@ class CacheManager:
     Cache root path is configurable via QUICKBASE_CACHE_ROOT environment variable.
     """
 
-    def __init__(self, cache_root: Path = None):
+    def __init__(self, cache_root: Path | None = None):
         """Initialize the cache manager.
 
         Args:
@@ -50,17 +52,22 @@ class CacheManager:
         """Get path for report metadata file.
 
         Args:
-            app_name: Application name (not used in path, kept for API compatibility).
+            app_name: Application name.
             table_name: Table name.
             report_name: Report name.
 
         Returns:
             Path object for the metadata file.
-        """
-        table_fmt = table_name.lower().replace(" ", "_")
-        report_fmt = report_name.lower().replace(" ", "_")
 
-        path = self.cache_root / "report_metadata" / f"{table_fmt}_{report_fmt}.json"
+        Example:
+            >>> cache_mgr.get_metadata_path("Sales Tracker", "Opportunities", "Open Deals")
+            PosixPath('.quickbase-cache/dev/report_metadata/sales_tracker/opportunities_open_deals.json')
+        """
+        app_fmt = normalize_name(app_name)
+        table_fmt = normalize_name(table_name)
+        report_fmt = normalize_name(report_name)
+
+        path = self.cache_root / "report_metadata" / app_fmt / f"{table_fmt}_{report_fmt}.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         return path
 
@@ -68,17 +75,22 @@ class CacheManager:
         """Get path for report data file.
 
         Args:
-            app_name: Application name (not used in path, kept for API compatibility).
+            app_name: Application name.
             table_name: Table name.
             report_name: Report name.
 
         Returns:
             Path object for the data file.
-        """
-        table_fmt = table_name.lower().replace(" ", "_")
-        report_fmt = report_name.lower().replace(" ", "_")
 
-        path = self.cache_root / "report_data" / f"{table_fmt}_{report_fmt}_data.json"
+        Example:
+            >>> cache_mgr.get_data_path("Sales Tracker", "Opportunities", "Open Deals")
+            PosixPath('.quickbase-cache/dev/report_data/sales_tracker/opportunities_open_deals_data.json')
+        """
+        app_fmt = normalize_name(app_name)
+        table_fmt = normalize_name(table_name)
+        report_fmt = normalize_name(report_name)
+
+        path = self.cache_root / "report_data" / app_fmt / f"{table_fmt}_{report_fmt}_data.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         return path
 
@@ -90,7 +102,10 @@ class CacheManager:
             content: String content to write.
 
         Raises:
-            Exception: If S3 sync fails on Lambda.
+            Exception: If S3 sync fails on Lambda (required for operation success).
+
+        Example:
+            >>> cache_mgr.write_file(Path("metadata.json"), '{"key": "value"}')
         """
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(content)
@@ -109,19 +124,22 @@ class CacheManager:
 
         Raises:
             FileNotFoundError: If file does not exist.
+
+        Example:
+            >>> content = cache_mgr.read_file(Path("metadata.json"))
         """
         if not file_path.exists():
             raise FileNotFoundError(f"Cache file not found: {file_path}")
         return file_path.read_text()
 
     def _sync_to_s3(self, file_path: Path) -> None:
-        """Upload file to S3.
+        """Upload file to S3 for persistence across Lambda invocations.
 
         Args:
             file_path: Path to file to upload.
 
         Raises:
-            Exception: If upload fails.
+            Exception: If upload fails. This is critical - Lambda /tmp is ephemeral.
         """
         try:
             relative_path = file_path.relative_to(self.cache_root)
@@ -135,10 +153,15 @@ class CacheManager:
     def sync_from_s3(self) -> None:
         """Download all cache files from S3 to /tmp (Lambda only).
 
-        Only runs on Lambda. Logs and continues if bucket not configured.
+        Restores cache from S3 at Lambda initialization. Only runs on Lambda.
+        Logs and continues if bucket not configured.
 
         Raises:
             Exception: If S3 operations fail.
+
+        Note:
+            Lambda /tmp has storage limits (default 512 MB, max 10 GB).
+            Current cache size (~32 MB) is well within limits.
         """
         if not self.is_lambda or not self.s3_client:
             logger.debug("Not in Lambda or S3 client unavailable, skipping S3 sync")
@@ -175,19 +198,27 @@ class CacheManager:
 
 
 # Singleton instance
-_cache_manager = None
+_cache_manager: CacheManager | None = None
 
 
-def get_cache_manager(cache_root: Path = None) -> CacheManager:
-    """Get or create cache manager instance.
+def get_cache_manager(cache_root: Path | None = None) -> CacheManager:
+    """Get or create cache manager singleton instance.
 
     Args:
         cache_root: Optional path to cache root. Only used on first call.
-            Subsequent calls with different cache_root will return the existing
-            instance (cache_root parameter is ignored on subsequent calls).
+            Subsequent calls ignore this parameter and return the existing instance.
 
     Returns:
         Singleton CacheManager instance.
+
+    Warning:
+        The cache_root parameter is only respected on the first call. If you need
+        to change cache locations, use CacheManager directly instead of the singleton.
+
+    Example:
+        >>> cache_mgr = get_cache_manager(Path("/custom/cache"))
+        >>> # Later calls ignore cache_root
+        >>> same_mgr = get_cache_manager(Path("/different/path"))  # Returns first instance
     """
     global _cache_manager
     if _cache_manager is None:
@@ -198,4 +229,6 @@ def get_cache_manager(cache_root: Path = None) -> CacheManager:
 def _reset_cache_manager() -> None:
     """Reset the singleton cache manager. For testing only."""
     global _cache_manager
+    _cache_manager = None
+    _cache_manager = None
     _cache_manager = None

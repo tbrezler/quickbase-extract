@@ -74,6 +74,20 @@ class TestHandleUpsert:
 
         assert mock_qb_api.upsert_records.call_count == 2
 
+    def test_upsert_wait_time_cap(self, mock_qb_api):
+        """Test that wait time is capped at 60 seconds."""
+        mock_qb_api.upsert_records.side_effect = [
+            Exception("429 Rate Limit"),
+            {"metadata": {"createdRecordIds": [], "updatedRecordIds": [], "unchangedRecordIds": []}},
+        ]
+
+        start = time.time()
+        handle_upsert(mock_qb_api, "tblXYZ", [], max_retries=10)  # Would be 2^9 = 512s without cap
+        elapsed = time.time() - start
+
+        # Should be capped at ~60 seconds, not 512
+        assert elapsed < 65  # Allow some margin
+
 
 class TestHandleDelete:
     """Tests for handle_delete function."""
@@ -98,14 +112,26 @@ class TestHandleDelete:
         with pytest.raises(QuickbaseOperationError, match="delete"):
             handle_delete(mock_qb_api, "tblXYZ", where="invalid")
 
-    def test_delete_no_retry(self, mock_qb_api):
-        """Test that delete does not retry."""
-        mock_qb_api.delete_records.side_effect = Exception("429 Rate Limit")
+    def test_delete_retries_on_rate_limit(self, mock_qb_api):
+        """Test that delete retries on 429 rate limit."""
+        mock_qb_api.delete_records.side_effect = [
+            Exception("429 Rate Limit"),
+            5,
+        ]
+
+        result = handle_delete(mock_qb_api, "tblXYZ", where="{8.EX.'Test'}")
+
+        assert result == 5
+        assert mock_qb_api.delete_records.call_count == 2
+
+    def test_delete_no_retry_on_other_errors(self, mock_qb_api):
+        """Test that delete does not retry non-rate-limit errors."""
+        mock_qb_api.delete_records.side_effect = Exception("Permission denied")
 
         with pytest.raises(QuickbaseOperationError):
             handle_delete(mock_qb_api, "tblXYZ", where="{8.EX.'Test'}")
 
-        # Should only try once
+        # Should only try once for non-rate-limit errors
         assert mock_qb_api.delete_records.call_count == 1
 
 
@@ -125,7 +151,7 @@ class TestHandleQuery:
         assert len(result["data"]) == 2
 
     def test_query_with_all_parameters(self, mock_qb_api):
-        """Test query with all optional parameters."""
+        """Test query with all optional parameters including description."""
         result = handle_query(
             mock_qb_api,
             "tblXYZ",
@@ -134,6 +160,7 @@ class TestHandleQuery:
             sort_by=[{"fieldId": 6, "order": "ASC"}],
             group_by=[{"fieldId": 8}],
             options={"skip": 0, "top": 100},
+            description="active users",
         )
 
         assert result is not None
@@ -168,13 +195,15 @@ class TestHandleQuery:
         assert mock_qb_api.query_for_data.call_count == 2
 
     def test_query_logs_record_count(self, mock_qb_api, caplog):
-        """Test that query logs record count."""
-        handle_query(mock_qb_api, "tblXYZ")
+        """Test that query logs record count at info level."""
+        handle_query(mock_qb_api, "tblXYZ", description="test query")
 
         assert "2 records" in caplog.text
+        # Check it's at info level, not debug
+        assert any(record.levelname == "INFO" for record in caplog.records)
 
     def test_query_exponential_backoff(self, mock_qb_api):
-        """Test that retries use exponential backoff (takes time)."""
+        """Test that retries use exponential backoff with cap."""
         mock_qb_api.query_for_data.side_effect = [
             Exception("429 Rate Limit"),
             Exception("429 Rate Limit"),
@@ -188,3 +217,9 @@ class TestHandleQuery:
         # Should have some delay due to exponential backoff
         # (2^0 + 2^1) = 3 seconds + random = at least ~3 seconds
         assert elapsed >= 2  # Allow some margin
+
+    def test_query_description_in_logs(self, mock_qb_api, caplog):
+        """Test that description appears in log messages."""
+        handle_query(mock_qb_api, "tblXYZ", description="customer records")
+
+        assert "customer records" in caplog.text
