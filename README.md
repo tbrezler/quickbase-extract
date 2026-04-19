@@ -1031,17 +1031,6 @@ cache_path = os.path.expanduser("~/.quickbase-cache")
 cache_mgr = CacheManager(cache_root=cache_path)
 ```
 
-## Changelog
-
-### v0.1.0 (2024-01-XX)
-
-- Initial release
-- Parallel report fetching
-- Local and S3 caching
-- Automatic retry logic
-- Lambda support
-- Cache monitoring tools
-
 ## Advanced Usage
 
 ### Custom Report Configurations
@@ -1717,25 +1706,3 @@ try:
 except FileNotFoundError:
     data = get_data(client, metadata, "customers", cache=True)  # Fallback to API
 ```
-
-## Roadmap
-
-### Planned Features
-
-- **v0.2.0** (Q2 2024)
-  - [ ] Async/await support for better Lambda performance
-  - [ ] Built-in data validation with Pydantic
-  - [ ] Incremental sync support (track changes since last fetch)
-  - [ ] CLI tool for common operations
-
-- **v0.3.0** (Q3 2024)
-  - [ ] GraphQL-like query builder
-  - [ ] Native Pandas integration
-  - [ ] Streaming API for very large datasets
-  - [ ] Built-in data quality checks
-
-- **v1.0.0** (Q4 2024)
-  - [ ] Stable API
-  - [ ] Full documentation site
-  - [ ] Performance benchmarks
-  - [ ] Enterprise features (SSO, audit logs)
