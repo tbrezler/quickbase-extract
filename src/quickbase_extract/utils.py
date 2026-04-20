@@ -34,9 +34,7 @@ def find_report(reports: list[dict], report_desc: str) -> dict:
 
     if not matches:
         available = [r["Description"] for r in reports]
-        raise ValueError(
-            f"No report found matching description: '{report_desc}'. Available reports: {available}"
-        )
+        raise ValueError(f"No report found matching description: '{report_desc}'. Available reports: {available}")
 
     if len(matches) > 1:
         logger.warning(f"Multiple reports match '{report_desc}', using first match")
