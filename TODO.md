@@ -6,5 +6,3 @@
 - [ ] Native Pandas integration for data analysis workflows
 - [ ] Built-in data quality checks and validation
 - [ ] Performance benchmarks and optimization guide
-
----
