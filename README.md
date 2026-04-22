@@ -333,10 +333,6 @@ client = get_qb_client(
 # Get all report configurations
 report_configs = get_reports()
 
-# One-time: Refresh metadata (run when reports change)
-if os.environ.get("REFRESH_METADATA") == "true":
-    refresh_all(client, report_configs)
-
 # Load metadata
 metadata = load_report_metadata_batch(report_configs)
 
@@ -364,7 +360,6 @@ QB_HR_APP_ID=bq9def456
 QB_INVENTORY_APP_ID=bq7ghi789
 
 # Optional
-REFRESH_METADATA=false
 QUICKBASE_CACHE_ROOT=./.quickbase-cache/dev
 ENV=dev
 ```
