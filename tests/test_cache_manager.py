@@ -1,9 +1,17 @@
 """Unit tests for cache_manager module."""
 
+import logging
+import os
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
-from quickbase_extract.cache_manager import CacheManager, get_cache_manager
+from quickbase_extract.cache_manager import (
+    CacheManager,
+    _reset_cache_manager,
+    ensure_cache_freshness,
+    get_cache_manager,
+)
 
 
 class TestCacheManagerInit:
@@ -282,6 +290,298 @@ class TestCacheManagerS3Sync:
             mgr.sync_from_s3()
 
             assert "Synced 1 files from S3" in caplog.text
+
+
+class TestEnsureCacheFreshness:
+    """Tests for ensure_cache_freshness orchestration function."""
+
+    def test_cache_fresh_no_refresh_needed(self, temp_cache_dir, monkeypatch, caplog):
+        """Test that no refresh occurs when cache is fresh."""
+        monkeypatch.delenv("AWS_LAMBDA_FUNCTION_NAME", raising=False)
+        monkeypatch.setenv("ENV", "dev")
+        monkeypatch.setenv("QUICKBASE_CACHE_ROOT", str(temp_cache_dir))
+
+        # Reset singleton to use new cache root
+        _reset_cache_manager()
+
+        # Create metadata cache files
+        metadata_dir = temp_cache_dir / "report_metadata" / "app"
+        metadata_dir.mkdir(parents=True)
+        (metadata_dir / "table_report.json").write_text("{}")
+
+        # Create data cache files
+        data_dir = temp_cache_dir / "report_data" / "app"
+        data_dir.mkdir(parents=True)
+        (data_dir / "table_report_data.json").write_text("{}")
+
+        refresh_callback = MagicMock()
+
+        caplog.set_level(logging.DEBUG)
+        ensure_cache_freshness(
+            refresh_callback=refresh_callback,
+            metadata_stale_hours=168,
+            data_stale_hours=24,
+        )
+
+        # Refresh should not be called
+        refresh_callback.assert_not_called()
+        assert "Cache is fresh" in caplog.text
+
+    def test_metadata_empty_triggers_refresh(self, temp_cache_dir, monkeypatch):
+        """Test that refresh is called when metadata cache is empty."""
+        monkeypatch.delenv("AWS_LAMBDA_FUNCTION_NAME", raising=False)
+        monkeypatch.setenv("ENV", "dev")
+
+        # Create only data cache (metadata empty)
+        data_dir = temp_cache_dir / "report_data" / "app"
+        data_dir.mkdir(parents=True)
+        (data_dir / "table_report_data.json").write_text("{}")
+
+        refresh_callback = MagicMock()
+
+        ensure_cache_freshness(
+            refresh_callback=refresh_callback,
+            metadata_stale_hours=168,
+            data_stale_hours=24,
+        )
+
+        # Refresh should be called
+        refresh_callback.assert_called_once()
+
+    def test_metadata_stale_triggers_refresh(self, temp_cache_dir, monkeypatch, caplog):
+        """Test that refresh is called when metadata is stale."""
+
+        monkeypatch.delenv("AWS_LAMBDA_FUNCTION_NAME", raising=False)
+        monkeypatch.setenv("ENV", "dev")
+
+        # Create old metadata files (10 days old)
+        metadata_dir = temp_cache_dir / "report_metadata" / "app"
+        metadata_dir.mkdir(parents=True)
+        metadata_file = metadata_dir / "table_report.json"
+        metadata_file.write_text("{}")
+
+        # Set modification time to 10 days ago
+        old_time = time.time() - (10 * 24 * 3600)
+
+        os.utime(metadata_file, (old_time, old_time))
+
+        # Create fresh data cache
+        data_dir = temp_cache_dir / "report_data" / "app"
+        data_dir.mkdir(parents=True)
+        (data_dir / "table_report_data.json").write_text("{}")
+
+        refresh_callback = MagicMock()
+
+        ensure_cache_freshness(
+            refresh_callback=refresh_callback,
+            metadata_stale_hours=168,  # 7 days
+            data_stale_hours=24,
+        )
+
+        # Refresh should be called
+        refresh_callback.assert_called_once()
+
+    def test_data_empty_triggers_refresh(self, temp_cache_dir, monkeypatch):
+        """Test that refresh is called when data cache is empty."""
+        monkeypatch.delenv("AWS_LAMBDA_FUNCTION_NAME", raising=False)
+        monkeypatch.setenv("ENV", "dev")
+
+        # Create only metadata cache (data empty)
+        metadata_dir = temp_cache_dir / "report_metadata" / "app"
+        metadata_dir.mkdir(parents=True)
+        (metadata_dir / "table_report.json").write_text("{}")
+
+        refresh_callback = MagicMock()
+
+        ensure_cache_freshness(
+            refresh_callback=refresh_callback,
+            metadata_stale_hours=168,
+            data_stale_hours=24,
+        )
+
+        # Refresh should be called
+        refresh_callback.assert_called_once()
+
+    def test_data_stale_triggers_refresh(self, temp_cache_dir, monkeypatch, caplog):
+        """Test that refresh is called when data is stale."""
+
+        monkeypatch.delenv("AWS_LAMBDA_FUNCTION_NAME", raising=False)
+        monkeypatch.setenv("ENV", "dev")
+
+        # Create fresh metadata cache
+        metadata_dir = temp_cache_dir / "report_metadata" / "app"
+        metadata_dir.mkdir(parents=True)
+        (metadata_dir / "table_report.json").write_text("{}")
+
+        # Create old data files (2 days old)
+        data_dir = temp_cache_dir / "report_data" / "app"
+        data_dir.mkdir(parents=True)
+        data_file = data_dir / "table_report_data.json"
+        data_file.write_text("{}")
+
+        # Set modification time to 2 days ago
+        old_time = time.time() - (2 * 24 * 3600)
+
+        os.utime(data_file, (old_time, old_time))
+
+        refresh_callback = MagicMock()
+
+        ensure_cache_freshness(
+            refresh_callback=refresh_callback,
+            metadata_stale_hours=168,
+            data_stale_hours=24,  # 1 day
+        )
+
+        # Refresh should be called
+        refresh_callback.assert_called_once()
+
+    def test_force_refresh_skips_checks(self, temp_cache_dir, monkeypatch):
+        """Test that force=True always refreshes regardless of cache state."""
+        monkeypatch.delenv("AWS_LAMBDA_FUNCTION_NAME", raising=False)
+        monkeypatch.setenv("ENV", "dev")
+
+        # Create fresh cache (both metadata and data)
+        metadata_dir = temp_cache_dir / "report_metadata" / "app"
+        metadata_dir.mkdir(parents=True)
+        (metadata_dir / "table_report.json").write_text("{}")
+
+        data_dir = temp_cache_dir / "report_data" / "app"
+        data_dir.mkdir(parents=True)
+        (data_dir / "table_report_data.json").write_text("{}")
+
+        refresh_callback = MagicMock()
+
+        ensure_cache_freshness(
+            refresh_callback=refresh_callback,
+            metadata_stale_hours=168,
+            data_stale_hours=24,
+            force=True,  # Force refresh
+        )
+
+        # Refresh should be called even though cache is fresh
+        refresh_callback.assert_called_once()
+
+    def test_force_cache_refresh_env_var(self, temp_cache_dir, monkeypatch):
+        """Test that FORCE_CACHE_REFRESH env var forces refresh."""
+        monkeypatch.delenv("AWS_LAMBDA_FUNCTION_NAME", raising=False)
+        monkeypatch.setenv("ENV", "dev")
+        monkeypatch.setenv("FORCE_CACHE_REFRESH", "true")
+
+        # Create fresh cache
+        metadata_dir = temp_cache_dir / "report_metadata" / "app"
+        metadata_dir.mkdir(parents=True)
+        (metadata_dir / "table_report.json").write_text("{}")
+
+        data_dir = temp_cache_dir / "report_data" / "app"
+        data_dir.mkdir(parents=True)
+        (data_dir / "table_report_data.json").write_text("{}")
+
+        refresh_callback = MagicMock()
+
+        ensure_cache_freshness(
+            refresh_callback=refresh_callback,
+            metadata_stale_hours=168,
+            data_stale_hours=24,
+        )
+
+        # Refresh should be called due to env var
+        refresh_callback.assert_called_once()
+
+    def test_env_var_thresholds_override_defaults(self, temp_cache_dir, monkeypatch, caplog):
+        """Test that METADATA_STALE_HOURS and DATA_STALE_HOURS env vars are used."""
+
+        monkeypatch.delenv("AWS_LAMBDA_FUNCTION_NAME", raising=False)
+        monkeypatch.setenv("ENV", "dev")
+        monkeypatch.setenv("METADATA_STALE_HOURS", "1")  # 1 hour
+        monkeypatch.setenv("DATA_STALE_HOURS", "1")  # 1 hour
+
+        # Create metadata files (2 hours old)
+        metadata_dir = temp_cache_dir / "report_metadata" / "app"
+        metadata_dir.mkdir(parents=True)
+        metadata_file = metadata_dir / "table_report.json"
+        metadata_file.write_text("{}")
+
+        old_time = time.time() - (2 * 3600)
+
+        os.utime(metadata_file, (old_time, old_time))
+
+        # Create data files (2 hours old)
+        data_dir = temp_cache_dir / "report_data" / "app"
+        data_dir.mkdir(parents=True)
+        data_file = data_dir / "table_report_data.json"
+        data_file.write_text("{}")
+        os.utime(data_file, (old_time, old_time))
+
+        refresh_callback = MagicMock()
+
+        # Don't provide thresholds - should read from env vars
+        ensure_cache_freshness(refresh_callback=refresh_callback)
+
+        # Should refresh because both caches are older than 1 hour
+        refresh_callback.assert_called_once()
+
+    def test_refresh_failure_logged_not_raised(self, temp_cache_dir, monkeypatch, caplog):
+        """Test that refresh failure is logged but not re-raised."""
+        monkeypatch.delenv("AWS_LAMBDA_FUNCTION_NAME", raising=False)
+        monkeypatch.setenv("ENV", "dev")
+
+        # Create empty cache (will trigger refresh)
+        refresh_callback = MagicMock(side_effect=Exception("Refresh failed!"))
+
+        # Should not raise
+        ensure_cache_freshness(
+            refresh_callback=refresh_callback,
+            metadata_stale_hours=168,
+            data_stale_hours=24,
+        )
+
+        # But should log the error
+        assert "Cache refresh failed: Refresh failed!" in caplog.text
+
+    def test_non_callable_refresh_callback_raises_error(self, temp_cache_dir, monkeypatch):
+        """Test that non-callable refresh_callback raises ValueError."""
+        monkeypatch.delenv("AWS_LAMBDA_FUNCTION_NAME", raising=False)
+        monkeypatch.setenv("ENV", "dev")
+
+        with pytest.raises(ValueError, match="refresh_callback must be callable"):
+            ensure_cache_freshness(
+                refresh_callback="not_a_function",
+                metadata_stale_hours=168,
+                data_stale_hours=24,
+            )
+
+    def test_multiple_stale_caches_reported(self, temp_cache_dir, monkeypatch, caplog):
+        """Test that all stale cache reasons are included in log."""
+
+        monkeypatch.delenv("AWS_LAMBDA_FUNCTION_NAME", raising=False)
+        monkeypatch.setenv("ENV", "dev")
+
+        # Create old metadata (10 days old)
+        metadata_dir = temp_cache_dir / "report_metadata" / "app"
+        metadata_dir.mkdir(parents=True)
+        metadata_file = metadata_dir / "table_report.json"
+        metadata_file.write_text("{}")
+
+        old_time = time.time() - (10 * 24 * 3600)
+
+        os.utime(metadata_file, (old_time, old_time))
+
+        # Create old data (2 days old)
+        data_dir = temp_cache_dir / "report_data" / "app"
+        data_dir.mkdir(parents=True)
+        data_file = data_dir / "table_report_data.json"
+        data_file.write_text("{}")
+
+        old_time_data = time.time() - (2 * 24 * 3600)
+        os.utime(data_file, (old_time_data, old_time_data))
+
+        refresh_callback = MagicMock()
+
+        ensure_cache_freshness(
+            refresh_callback=refresh_callback,
+            metadata_stale_hours=168,  # 7 days
+            data_stale_hours=24,  # 1 day
+        )
 
 
 class TestGetCacheManagerSingleton:

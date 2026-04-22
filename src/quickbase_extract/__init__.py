@@ -24,17 +24,8 @@ import logging
 # API operations with error handling
 from quickbase_extract.api_handlers import QuickbaseOperationError, handle_delete, handle_query, handle_upsert
 
-# Cache monitoring
-from quickbase_extract.cache_freshness import (
-    CacheFileInfo,
-    CacheSummary,
-    check_cache_freshness,
-    get_cache_files,
-    get_cache_summary,
-)
-
 # Cache management
-from quickbase_extract.cache_manager import CacheManager, get_cache_manager
+from quickbase_extract.cache_manager import CacheManager, ensure_cache_freshness, get_cache_manager
 from quickbase_extract.cache_sync import is_cache_synced, sync_from_s3_once
 
 # Client
@@ -55,7 +46,7 @@ from quickbase_extract.report_metadata import (
 # Utilities
 from quickbase_extract.utils import find_report, normalize_name
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 # Configure logging
 logging.getLogger(__name__).addHandler(logging.NullHandler())
@@ -70,12 +61,7 @@ __all__ = [
     "get_cache_manager",
     "sync_from_s3_once",
     "is_cache_synced",
-    # Cache monitoring
-    "CacheFileInfo",
-    "CacheSummary",
-    "check_cache_freshness",
-    "get_cache_files",
-    "get_cache_summary",
+    "ensure_cache_freshness",
     # API operations
     "QuickbaseOperationError",
     "handle_delete",

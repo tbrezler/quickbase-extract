@@ -565,6 +565,9 @@ def get_reports():
 | `ENV` | Environment name (dev/prod) | `dev` |
 | `AWS_LAMBDA_FUNCTION_NAME` | Set by Lambda (auto-detected) | - |
 | `CACHE_BUCKET` | S3 bucket for Lambda cache | - |
+| `METADATA_STALE_HOURS` | Threshold (hours) for metadata cache staleness | `168` (7 days) |
+| `DATA_STALE_HOURS` | Threshold (hours) for data cache staleness | `24` (1 day) |
+| `FORCE_CACHE_REFRESH` | If set to "true", forces cache refresh on next sync | - |
 
 ### Custom Cache Location
 
@@ -772,6 +775,33 @@ Check if cache has been synced in this invocation.
 ```python
 if not is_cache_synced():
     print("Cache needs syncing")
+```
+
+#### `ensure_cache_freshness(refresh_callback, metadata_stale_hours=None, data_stale_hours=None, force=False)`
+
+Ensure cache is fresh; refresh if empty or stale.
+
+Checks if metadata and/or data caches are empty or stale. If either is, calls the provided refresh callback to refresh both. Gracefully handles refresh failures (logs but does not re-raise).
+
+**Parameters:**
+- `refresh_callback` (Callable): Function that refreshes the cache (takes no arguments)
+- `metadata_stale_hours` (float, optional): Threshold for metadata staleness. If not provided, reads from `METADATA_STALE_HOURS` env var (default: 168 hours / 7 days)
+- `data_stale_hours` (float, optional): Threshold for data staleness. If not provided, reads from `DATA_STALE_HOURS` env var (default: 24 hours)
+- `force` (bool): If True, skips checks and refreshes immediately. Can also be triggered via `FORCE_CACHE_REFRESH` environment variable (default: False)
+
+**Raises:**
+- `ValueError`: If refresh_callback is not callable
+
+```python
+from quickbase_extract import ensure_cache_freshness
+from bif.quickbase import refresh_report_metadata
+
+# In your Lambda handler or initialization
+ensure_cache_freshness(
+    refresh_callback=refresh_report_metadata.main,
+    metadata_stale_hours=720,  # 30 days
+    data_stale_hours=24        # 1 day
+)
 ```
 
 ### Cache Monitoring
@@ -1029,6 +1059,56 @@ import os
 
 cache_path = os.path.expanduser("~/.quickbase-cache")
 cache_mgr = CacheManager(cache_root=cache_path)
+```
+
+## Cache Freshness Management
+
+### Automatic Cache Refresh on Cold Start
+
+Use `ensure_cache_freshness()` to automatically check and refresh cache if stale:
+
+```python
+from quickbase_extract import (
+    sync_from_s3_once,
+    ensure_cache_freshness,
+    load_report_metadata_batch,
+    get_data_parallel
+)
+from bif.quickbase import refresh_report_metadata
+
+def lambda_handler(event, context):
+    # Sync from S3 on cold start
+    sync_from_s3_once()
+
+    # Ensure cache is fresh (auto-refresh if needed)
+    ensure_cache_freshness(
+        refresh_callback=refresh_report_metadata.main,
+        metadata_stale_hours=720,  # 30 days
+        data_stale_hours=24         # 1 day
+    )
+
+    # Load metadata and proceed
+    metadata = load_report_metadata_batch(report_configs)
+    data = get_data_parallel(client, metadata, descriptions, cache=True)
+
+    return {"statusCode": 200, "body": "Success"}
+```
+
+### Force Refresh
+
+Force a cache refresh either programmatically or via environment variable:
+
+```python
+# Programmatic force
+ensure_cache_freshness(
+    refresh_callback=refresh_report_metadata.main,
+    force=True  # Always refresh, skip age checks
+)
+
+# Via environment variable (set in Lambda before invocation)
+# FORCE_CACHE_REFRESH=true
+# Then call normally:
+ensure_cache_freshness(refresh_callback=refresh_report_metadata.main)
 ```
 
 ## Advanced Usage

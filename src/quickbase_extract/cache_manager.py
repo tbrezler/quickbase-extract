@@ -2,6 +2,7 @@
 
 import logging
 import os
+from collections.abc import Callable
 from pathlib import Path
 
 import boto3
@@ -9,6 +10,12 @@ import boto3
 from quickbase_extract.utils import normalize_name
 
 logger = logging.getLogger(__name__)
+
+# Cache freshness thresholds (in hours)
+# Metadata rarely changes, so longer threshold is acceptable
+DEFAULT_METADATA_STALE_HOURS = 168  # 7 days
+# Data should be refreshed more frequently
+DEFAULT_DATA_STALE_HOURS = 24  # 1 day
 
 
 class CacheManager:
@@ -196,6 +203,186 @@ class CacheManager:
             logger.error(f"Failed to sync from S3: {e}")
             raise
 
+    def is_cache_empty(self, cache_type: str = "metadata") -> bool:
+        """Check if cache directory is empty or missing.
+
+        Args:
+            cache_type: Type of cache to check. Options: "metadata", "data".
+                Defaults to "metadata".
+
+        Returns:
+            True if no cache files of the specified type exist, False otherwise.
+
+        Raises:
+            ValueError: If cache_type is not "metadata" or "data".
+
+        Example:
+            >>> if cache_mgr.is_cache_empty("metadata"):
+            ...     print("Metadata cache is empty")
+        """
+        if cache_type not in ("metadata", "data"):
+            raise ValueError(f"cache_type must be 'metadata' or 'data', got: {cache_type}")
+
+        cache_dir = self.cache_root / f"report_{cache_type}"
+
+        if not cache_dir.exists():
+            logger.warning(f"Cache directory does not exist: {cache_dir}")
+            return True
+
+        # Check if directory has any .json files
+        json_files = list(cache_dir.rglob("*.json"))
+        if not json_files:
+            logger.warning(f"Cache directory is empty: {cache_dir}")
+            return True
+
+        return False
+
+    def get_cache_age_hours(self, cache_type: str = "metadata") -> float:
+        """Get age of oldest file in cache directory.
+
+        Returns the age of the oldest file in the specified cache directory.
+        This helps determine if cache needs refreshing.
+
+        Args:
+            cache_type: Type of cache to check. Options: "metadata", "data".
+                Defaults to "metadata".
+
+        Returns:
+            Age in hours of the oldest .json file. Returns 0 if no files found.
+
+        Raises:
+            ValueError: If cache_type is not "metadata" or "data".
+
+        Example:
+            >>> age = cache_mgr.get_cache_age_hours("metadata")
+            >>> if age > 168:  # 7 days
+            ...     print(f"Cache is {age} hours old, needs refresh")
+        """
+        if cache_type not in ("metadata", "data"):
+            raise ValueError(f"cache_type must be 'metadata' or 'data', got: {cache_type}")
+
+        cache_dir = self.cache_root / f"report_{cache_type}"
+
+        if not cache_dir.exists():
+            return 0
+
+        json_files = list(cache_dir.rglob("*.json"))
+        if not json_files:
+            return 0
+
+        # Find the oldest file
+        import time
+
+        oldest_mtime = min(f.stat().st_mtime for f in json_files)
+        age_hours = (time.time() - oldest_mtime) / 3600
+
+        return round(age_hours, 1)
+
+
+def ensure_cache_freshness(
+    refresh_callback: Callable[[], None],
+    metadata_stale_hours: float | None = None,
+    data_stale_hours: float | None = None,
+    force: bool = False,
+) -> None:
+    """Ensure cache is fresh; refresh if empty or stale.
+
+    Checks if metadata and/or data caches are empty or stale. If either is,
+    calls the provided refresh callback to refresh both. Gracefully handles
+    refresh failures (logs but does not re-raise).
+
+    This is the primary orchestration function for cache freshness management.
+    Use it in your Lambda handlers or initialization code to ensure cache
+    is ready before processing.
+
+    Args:
+        refresh_callback: Callable that refreshes the cache. Should take no
+            arguments. Should raise an exception if refresh fails (exceptions
+            will be logged but not re-raised).
+        metadata_stale_hours: Threshold (hours) for metadata staleness.
+            If not provided, reads from METADATA_STALE_HOURS env var,
+            falls back to DEFAULT_METADATA_STALE_HOURS (168 hours / 7 days).
+        data_stale_hours: Threshold (hours) for data staleness.
+            If not provided, reads from DATA_STALE_HOURS env var,
+            falls back to DEFAULT_DATA_STALE_HOURS (24 hours).
+        force: If True, skips all checks and refreshes immediately.
+            Can also be triggered via FORCE_CACHE_REFRESH environment variable.
+
+    Environment Variables:
+        METADATA_STALE_HOURS: Threshold for metadata cache staleness (in hours).
+        DATA_STALE_HOURS: Threshold for data cache staleness (in hours).
+        FORCE_CACHE_REFRESH: If set to "true" (case-insensitive), forces a
+            cache refresh even if cache appears fresh.
+
+    Raises:
+        ValueError: If refresh_callback is not callable.
+
+    Example:
+        >>> # In your Lambda handler or startup code
+        >>> from bif.quickbase import refresh_report_metadata
+        >>>
+        >>> ensure_cache_freshness(
+        ...     refresh_callback=refresh_report_metadata.main,
+        ...     metadata_stale_hours=720,  # 30 days
+        ... )
+    """
+    if not callable(refresh_callback):
+        raise ValueError("refresh_callback must be callable")
+
+    # Resolve thresholds from arguments, environment, or defaults
+    if metadata_stale_hours is None:
+        metadata_stale_hours = float(os.environ.get("METADATA_STALE_HOURS", DEFAULT_METADATA_STALE_HOURS))
+    if data_stale_hours is None:
+        data_stale_hours = float(os.environ.get("DATA_STALE_HOURS", DEFAULT_DATA_STALE_HOURS))
+
+    # Check for force refresh via environment variable
+    force_env = os.environ.get("FORCE_CACHE_REFRESH", "").lower() == "true"
+    should_force = force or force_env
+
+    cache_mgr = get_cache_manager()
+
+    # Check metadata cache
+    metadata_empty = cache_mgr.is_cache_empty("metadata")
+    metadata_age = cache_mgr.get_cache_age_hours("metadata")
+    metadata_stale = metadata_age > metadata_stale_hours
+
+    # Check data cache
+    data_empty = cache_mgr.is_cache_empty("data")
+    data_age = cache_mgr.get_cache_age_hours("data")
+    data_stale = data_age > data_stale_hours
+
+    # Determine if refresh is needed
+    refresh_needed = should_force or metadata_empty or metadata_stale or data_empty or data_stale
+
+    if not refresh_needed:
+        logger.debug(
+            f"Cache is fresh: metadata {metadata_age}h (threshold: {metadata_stale_hours}h), "
+            f"data {data_age}h (threshold: {data_stale_hours}h)"
+        )
+        return
+
+    # Determine reason(s) for refresh
+    reasons = []
+    if should_force:
+        reasons.append("force=True")
+    if metadata_empty:
+        reasons.append("metadata empty")
+    elif metadata_stale:
+        reasons.append(f"metadata stale ({metadata_age}h > {metadata_stale_hours}h)")
+    if data_empty:
+        reasons.append("data empty")
+    elif data_stale:
+        reasons.append(f"data stale ({data_age}h > {data_stale_hours}h)")
+
+    logger.warning(f"Cache refresh needed: {'; '.join(reasons)}")
+
+    # Attempt refresh
+    try:
+        refresh_callback()
+        logger.info("Cache refresh completed successfully")
+    except Exception as e:
+        logger.error(f"Cache refresh failed: {e}", exc_info=True)
+
 
 # Singleton instance
 _cache_manager: CacheManager | None = None
@@ -229,6 +416,4 @@ def get_cache_manager(cache_root: Path | None = None) -> CacheManager:
 def _reset_cache_manager() -> None:
     """Reset the singleton cache manager. For testing only."""
     global _cache_manager
-    _cache_manager = None
-    _cache_manager = None
     _cache_manager = None

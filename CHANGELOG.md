@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-04-22
+
+### Added
+
+- `ensure_cache_freshness()` function for automatic cache freshness checking and refresh orchestration
+- Separate configurable thresholds for metadata vs. data cache staleness
+- `METADATA_STALE_HOURS`, `DATA_STALE_HOURS`, `FORCE_CACHE_REFRESH` environment variables
+- `is_cache_empty()` and `get_cache_age_hours()` methods to CacheManager (support both metadata and data cache types)
+- Force refresh capability via `FORCE_CACHE_REFRESH=true` environment variable
+- Cache freshness management documentation and examples
+
+### Changed
+
+- `sync_from_s3_once()` now supports `FORCE_CACHE_REFRESH` environment variable
+- CacheManager now provides cache inspection methods for both metadata and data directories
+
+### Removed
+
+- `cache_freshness.py` module — functionality consolidated into `cache_manager.py` (use `ensure_cache_freshness()` instead)
+- `check_cache_freshness()`, `get_cache_files()`, `get_cache_summary()` functions — use `CacheManager` methods directly or `ensure_cache_freshness()` for orchestration
+
+### Deprecated
+
+- Importing cache freshness tools from separate module — import `ensure_cache_freshness` from `cache_manager` instead
+
 ## [0.1.0] - 2026-04-19
 
 ### Added

@@ -1,6 +1,7 @@
 """S3-backed cache sync for Lambda environments."""
 
 import logging
+import os
 
 from quickbase_extract.cache_manager import get_cache_manager
 
@@ -14,7 +15,7 @@ def sync_from_s3_once(force: bool = False) -> None:
     """Download cache from S3 to /tmp on Lambda cold start.
 
     Only syncs if cache hasn't been synced in this invocation.
-    Subsequent calls are no-ops unless force=True.
+    Subsequent calls are no-ops unless force=True or FORCE_CACHE_REFRESH env var is set.
 
     On Lambda, the sync flag persists across warm invocations within the same
     container, so warm starts skip the sync (Lambda /tmp persists). Only cold
@@ -25,22 +26,36 @@ def sync_from_s3_once(force: bool = False) -> None:
 
     Args:
         force: If True, sync even if already synced in this invocation.
-            Defaults to False.
+            Defaults to False. Can also be triggered via FORCE_CACHE_REFRESH
+            environment variable.
 
     Raises:
         Exception: If S3 operations fail.
+
+    Environment Variables:
+        FORCE_CACHE_REFRESH: If set to "true" (case-insensitive), forces a
+            cache sync even if already synced. Useful for triggering refreshes
+            without code changes (e.g., from Lambda console or alerting system).
 
     Example:
         >>> # In Lambda handler initialization
         >>> sync_from_s3_once()  # Syncs on cold start
         >>> sync_from_s3_once()  # No-op on same invocation
         >>>
-        >>> # Force re-sync if needed
+        >>> # Force re-sync if needed (programmatically)
         >>> sync_from_s3_once(force=True)
+        >>>
+        >>> # Or set environment variable before invocation
+        >>> # FORCE_CACHE_REFRESH=true (then call normally)
+        >>> sync_from_s3_once()  # Will sync regardless of _CACHE_SYNCED flag
     """
     global _CACHE_SYNCED
 
-    if _CACHE_SYNCED and not force:
+    # Check for force refresh via environment variable
+    force_env = os.environ.get("FORCE_CACHE_REFRESH", "").lower() == "true"
+    should_sync = _CACHE_SYNCED and not force and not force_env
+
+    if should_sync:
         logger.debug("Cache already synced in this invocation, skipping")
         return
 

@@ -5,7 +5,9 @@ Works with both local and Lambda environments via CacheManager.
 """
 
 import logging
+import os
 import time
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import TypedDict
@@ -197,3 +199,108 @@ def get_cache_summary(cache_root: Path | None = None) -> CacheSummary:
         "newest_file": newest["file"],
         "newest_age_hours": newest["age_hours"],
     }
+
+
+def ensure_cache_freshness(
+    refresh_callback: Callable[[], None],
+    metadata_stale_hours: float | None = None,
+    data_stale_hours: float | None = None,
+    force: bool = False,
+) -> None:
+    """Ensure cache is fresh; refresh if empty or stale.
+
+    Checks if metadata and/or data caches are empty or stale. If either is,
+    calls the provided refresh callback to refresh both. Gracefully handles
+    refresh failures (logs but does not re-raise).
+
+    This is the primary orchestration function for cache freshness management.
+    Use it in your Lambda handlers or initialization code to ensure cache
+    is ready before processing.
+
+    Args:
+        refresh_callback: Callable that refreshes the cache. Should take no
+            arguments. Should raise an exception if refresh fails (exceptions
+            will be logged but not re-raised).
+        metadata_stale_hours: Threshold (hours) for metadata staleness.
+            If not provided, reads from METADATA_STALE_HOURS env var,
+            falls back to DEFAULT_METADATA_STALE_HOURS (168 hours / 7 days).
+        data_stale_hours: Threshold (hours) for data staleness.
+            If not provided, reads from DATA_STALE_HOURS env var,
+            falls back to DEFAULT_DATA_STALE_HOURS (24 hours).
+        force: If True, skips all checks and refreshes immediately.
+            Can also be triggered via FORCE_CACHE_REFRESH environment variable.
+
+    Environment Variables:
+        METADATA_STALE_HOURS: Threshold for metadata cache staleness (in hours).
+        DATA_STALE_HOURS: Threshold for data cache staleness (in hours).
+        FORCE_CACHE_REFRESH: If set to "true" (case-insensitive), forces a
+            cache refresh even if cache appears fresh.
+
+    Raises:
+        ValueError: If refresh_callback is not callable.
+
+    Example:
+        >>> # In your Lambda handler or startup code
+        >>> from bif.quickbase import refresh_report_metadata
+        >>>
+        >>> ensure_cache_freshness(
+        ...     refresh_callback=refresh_report_metadata.main,
+        ...     metadata_stale_hours=720,  # 30 days
+        ... )
+    """
+    if not callable(refresh_callback):
+        raise ValueError("refresh_callback must be callable")
+
+    # Resolve thresholds from arguments, environment, or defaults
+    if metadata_stale_hours is None:
+        metadata_stale_hours = float(os.environ.get("METADATA_STALE_HOURS", DEFAULT_METADATA_STALE_HOURS))
+    if data_stale_hours is None:
+        data_stale_hours = float(os.environ.get("DATA_STALE_HOURS", DEFAULT_DATA_STALE_HOURS))
+
+    # Check for force refresh via environment variable
+    force_env = os.environ.get("FORCE_CACHE_REFRESH", "").lower() == "true"
+    should_force = force or force_env
+
+    cache_mgr = get_cache_manager()
+
+    # Check metadata cache
+    metadata_empty = cache_mgr.is_cache_empty("metadata")
+    metadata_age = cache_mgr.get_cache_age_hours("metadata")
+    metadata_stale = metadata_age > metadata_stale_hours
+
+    # Check data cache
+    data_empty = cache_mgr.is_cache_empty("data")
+    data_age = cache_mgr.get_cache_age_hours("data")
+    data_stale = data_age > data_stale_hours
+
+    # Determine if refresh is needed
+    refresh_needed = should_force or metadata_empty or metadata_stale or data_empty or data_stale
+
+    if not refresh_needed:
+        logger.debug(
+            f"Cache is fresh: metadata {metadata_age}h (threshold: {metadata_stale_hours}h), "
+            f"data {data_age}h (threshold: {data_stale_hours}h)"
+        )
+        return
+
+    # Determine reason(s) for refresh
+    reasons = []
+    if should_force:
+        reasons.append("force=True")
+    if metadata_empty:
+        reasons.append("metadata empty")
+    elif metadata_stale:
+        reasons.append(f"metadata stale ({metadata_age}h > {metadata_stale_hours}h)")
+    if data_empty:
+        reasons.append("data empty")
+    elif data_stale:
+        reasons.append(f"data stale ({data_age}h > {data_stale_hours}h)")
+
+    logger.warning(f"Cache refresh needed: {'; '.join(reasons)}")
+
+    # Attempt refresh
+    try:
+        refresh_callback()
+        logger.info("Cache refresh completed successfully")
+    except Exception as e:
+        logger.error(f"Cache refresh failed: {e}", exc_info=True)
