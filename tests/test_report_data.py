@@ -3,7 +3,7 @@
 import json
 
 import pytest
-from quickbase_extract.cache_manager import get_cache_manager
+from quickbase_extract.cache_manager import CacheManager
 from quickbase_extract.report_data import get_data, get_data_parallel, load_data, load_data_batch
 from quickbase_extract.report_metadata import get_report_metadata, load_report_metadata_batch
 
@@ -13,18 +13,20 @@ class TestGetData:
 
     def test_get_data_without_cache(self, temp_cache_dir, mock_qb_api, sample_report_configs):
         """Test getting data without caching."""
+        cache_mgr = CacheManager(cache_root=temp_cache_dir)
+
         # First cache metadata for only the first report
         config = sample_report_configs[0]
         get_report_metadata(
             mock_qb_api,
             config,
-            cache_root=temp_cache_dir,
+            cache_mgr,
         )
 
         # Load metadata - only pass the config we cached
         metadata = load_report_metadata_batch(
             [config],  # Only the one we cached
-            cache_root=temp_cache_dir,
+            cache_mgr,
         )
 
         # Get data without caching
@@ -32,8 +34,8 @@ class TestGetData:
             mock_qb_api,
             metadata,
             config["Description"],
+            cache_mgr,
             cache=False,
-            cache_root=temp_cache_dir,
         )
 
         assert len(data) == 2
@@ -42,18 +44,20 @@ class TestGetData:
 
     def test_get_data_with_cache(self, temp_cache_dir, mock_qb_api, sample_report_configs):
         """Test getting data and caching it."""
+        cache_mgr = CacheManager(cache_root=temp_cache_dir)
+
         # First cache metadata for only the first report
         config = sample_report_configs[0]
         get_report_metadata(
             mock_qb_api,
             config,
-            cache_root=temp_cache_dir,
+            cache_mgr,
         )
 
         # Load metadata - only pass the config we cached
         metadata = load_report_metadata_batch(
             [config],  # Only the one we cached
-            cache_root=temp_cache_dir,
+            cache_mgr,
         )
 
         # Get data with caching
@@ -61,12 +65,11 @@ class TestGetData:
             mock_qb_api,
             metadata,
             config["Description"],
+            cache_mgr,
             cache=True,
-            cache_root=temp_cache_dir,
         )
 
         # Verify data was cached
-        cache_mgr = get_cache_manager(cache_root=temp_cache_dir)
         data_path = cache_mgr.get_data_path(config["App"], config["Table"], config["Report"])
         assert data_path.exists()
 
@@ -76,18 +79,20 @@ class TestGetData:
 
     def test_data_transformation(self, temp_cache_dir, mock_qb_api, sample_report_configs):
         """Test that data is transformed correctly."""
+        cache_mgr = CacheManager(cache_root=temp_cache_dir)
+
         # First cache metadata for only the first report
         config = sample_report_configs[0]
         get_report_metadata(
             mock_qb_api,
             config,
-            cache_root=temp_cache_dir,
+            cache_mgr,
         )
 
         # Load metadata - only pass the config we cached
         metadata = load_report_metadata_batch(
             [config],  # Only the one we cached
-            cache_root=temp_cache_dir,
+            cache_mgr,
         )
 
         # Get data
@@ -95,7 +100,7 @@ class TestGetData:
             mock_qb_api,
             metadata,
             config["Description"],
-            cache_root=temp_cache_dir,
+            cache_mgr,
         )
 
         # Data should have field labels as keys, not IDs
@@ -110,18 +115,20 @@ class TestGetData:
 
     def test_get_data_unknown_report(self, temp_cache_dir, mock_qb_api, sample_report_configs):
         """Test error when report description not in metadata."""
+        cache_mgr = CacheManager(cache_root=temp_cache_dir)
+
         # First cache metadata for only the first report
         config = sample_report_configs[0]
         get_report_metadata(
             mock_qb_api,
             config,
-            cache_root=temp_cache_dir,
+            cache_mgr,
         )
 
         # Load metadata - only pass the config we cached
         metadata = load_report_metadata_batch(
             [config],  # Only the one we cached
-            cache_root=temp_cache_dir,
+            cache_mgr,
         )
 
         with pytest.raises(KeyError):
@@ -129,30 +136,32 @@ class TestGetData:
                 mock_qb_api,
                 metadata,
                 "Unknown Report",
-                cache_root=temp_cache_dir,
+                cache_mgr,
             )
 
     def test_get_data_logs_result(self, temp_cache_dir, mock_qb_api, sample_report_configs, caplog):
         """Test that get_data logs result."""
+        cache_mgr = CacheManager(cache_root=temp_cache_dir)
+
         config = sample_report_configs[0]
         get_report_metadata(
             mock_qb_api,
             config,
-            cache_root=temp_cache_dir,
+            cache_mgr,
         )
 
         # Load metadata - only pass the config we cached
         metadata = load_report_metadata_batch(
             [config],  # Only the one we cached
-            cache_root=temp_cache_dir,
+            cache_mgr,
         )
 
         get_data(
             mock_qb_api,
             metadata,
             config["Description"],
+            cache_mgr,
             cache=False,
-            cache_root=temp_cache_dir,
         )
 
         assert "fetched but not cached" in caplog.text or "2 records" in caplog.text
@@ -163,18 +172,20 @@ class TestGetDataParallel:
 
     def test_get_multiple_reports_parallel(self, temp_cache_dir, mock_qb_api, sample_report_configs):
         """Test fetching multiple reports in parallel."""
+        cache_mgr = CacheManager(cache_root=temp_cache_dir)
+
         # First cache metadata for all reports
         for report in sample_report_configs:
             get_report_metadata(
                 mock_qb_api,
                 report,
-                cache_root=temp_cache_dir,
+                cache_mgr,
             )
 
         # Load metadata
         metadata = load_report_metadata_batch(
             sample_report_configs,
-            cache_root=temp_cache_dir,
+            cache_mgr,
         )
 
         # Get data in parallel
@@ -183,8 +194,8 @@ class TestGetDataParallel:
             mock_qb_api,
             metadata,
             descriptions,
+            cache_mgr,
             cache=False,
-            cache_root=temp_cache_dir,
         )
 
         assert len(results) == 2
@@ -195,16 +206,18 @@ class TestGetDataParallel:
 
     def test_parallel_fail_fast_on_error(self, temp_cache_dir, mock_qb_api, sample_report_configs):
         """Test that parallel execution fails fast on first error."""
+        cache_mgr = CacheManager(cache_root=temp_cache_dir)
+
         # Cache only first report's metadata
         get_report_metadata(
             mock_qb_api,
             sample_report_configs[0],
-            cache_root=temp_cache_dir,
+            cache_mgr,
         )
 
         metadata = load_report_metadata_batch(
             [sample_report_configs[0]],
-            cache_root=temp_cache_dir,
+            cache_mgr,
         )
 
         # Try to get data for both (second should fail with KeyError)
@@ -214,22 +227,24 @@ class TestGetDataParallel:
                 mock_qb_api,
                 metadata,
                 descriptions,
-                cache_root=temp_cache_dir,
+                cache_mgr,
             )
 
     def test_parallel_with_custom_max_workers(self, temp_cache_dir, mock_qb_api, sample_report_configs):
         """Test parallel execution with custom max_workers."""
+        cache_mgr = CacheManager(cache_root=temp_cache_dir)
+
         # Cache metadata
         for report in sample_report_configs:
             get_report_metadata(
                 mock_qb_api,
                 report,
-                cache_root=temp_cache_dir,
+                cache_mgr,
             )
 
         metadata = load_report_metadata_batch(
             sample_report_configs,
-            cache_root=temp_cache_dir,
+            cache_mgr,
         )
 
         descriptions = [r["Description"] for r in sample_report_configs]
@@ -237,8 +252,8 @@ class TestGetDataParallel:
             mock_qb_api,
             metadata,
             descriptions,
+            cache_mgr,
             cache=False,
-            cache_root=temp_cache_dir,
             max_workers=2,
         )
 
@@ -246,11 +261,13 @@ class TestGetDataParallel:
 
     def test_parallel_with_empty_list(self, temp_cache_dir, mock_qb_api, caplog):
         """Test parallel execution with empty description list."""
+        cache_mgr = CacheManager(cache_root=temp_cache_dir)
+
         results = get_data_parallel(
             mock_qb_api,
             {},
             [],
-            cache_root=temp_cache_dir,
+            cache_mgr,
         )
 
         assert results == {}
@@ -262,33 +279,35 @@ class TestLoadData:
 
     def test_load_cached_data(self, temp_cache_dir, mock_qb_api, sample_report_configs):
         """Test loading cached data."""
+        cache_mgr = CacheManager(cache_root=temp_cache_dir)
+
         # First get and cache data for only the first report
         config = sample_report_configs[0]
         get_report_metadata(
             mock_qb_api,
             config,
-            cache_root=temp_cache_dir,
+            cache_mgr,
         )
 
         # Load metadata - only pass the config we cached
         metadata = load_report_metadata_batch(
             [config],  # Only the one we cached
-            cache_root=temp_cache_dir,
+            cache_mgr,
         )
 
         get_data(
             mock_qb_api,
             metadata,
             config["Description"],
+            cache_mgr,
             cache=True,
-            cache_root=temp_cache_dir,
         )
 
         # Now load cached data
         loaded = load_data(
             metadata,
             config["Description"],
-            cache_root=temp_cache_dir,
+            cache_mgr,
         )
 
         assert len(loaded) == 2
@@ -296,33 +315,37 @@ class TestLoadData:
 
     def test_load_nonexistent_data(self, temp_cache_dir, mock_qb_api, sample_report_configs):
         """Test error when data not cached."""
+        cache_mgr = CacheManager(cache_root=temp_cache_dir)
+
         config = sample_report_configs[0]
         get_report_metadata(
             mock_qb_api,
             config,
-            cache_root=temp_cache_dir,
+            cache_mgr,
         )
 
         # Load metadata - only pass the config we cached
         metadata = load_report_metadata_batch(
             [config],  # Only the one we cached
-            cache_root=temp_cache_dir,
+            cache_mgr,
         )
 
         with pytest.raises(FileNotFoundError):
             load_data(
                 metadata,
                 config["Description"],
-                cache_root=temp_cache_dir,
+                cache_mgr,
             )
 
     def test_load_unknown_report(self, temp_cache_dir):
         """Test error when report not in metadata."""
+        cache_mgr = CacheManager(cache_root=temp_cache_dir)
+
         with pytest.raises(KeyError):
             load_data(
                 {},
                 "Unknown Report",
-                cache_root=temp_cache_dir,
+                cache_mgr,
             )
 
 
@@ -331,17 +354,19 @@ class TestLoadDataBatch:
 
     def test_load_multiple_data(self, temp_cache_dir, mock_qb_api, sample_report_configs):
         """Test loading multiple data files."""
+        cache_mgr = CacheManager(cache_root=temp_cache_dir)
+
         # First cache metadata and data for all reports
         for report in sample_report_configs:
             get_report_metadata(
                 mock_qb_api,
                 report,
-                cache_root=temp_cache_dir,
+                cache_mgr,
             )
 
         metadata = load_report_metadata_batch(
             sample_report_configs,  # Now we've cached all of them
-            cache_root=temp_cache_dir,
+            cache_mgr,
         )
 
         # Cache all data
@@ -351,15 +376,15 @@ class TestLoadDataBatch:
                 mock_qb_api,
                 metadata,
                 desc,
+                cache_mgr,
                 cache=True,
-                cache_root=temp_cache_dir,
             )
 
         # Now load all
         all_data = load_data_batch(
             metadata,
             descriptions,
-            cache_root=temp_cache_dir,
+            cache_mgr,
         )
 
         assert len(all_data) == 2
@@ -369,27 +394,31 @@ class TestLoadDataBatch:
 
     def test_load_batch_with_empty_list(self, temp_cache_dir):
         """Test loading with empty description list."""
-        result = load_data_batch({}, [], cache_root=temp_cache_dir)
+        cache_mgr = CacheManager(cache_root=temp_cache_dir)
+
+        result = load_data_batch({}, [], cache_mgr)
         assert result == {}
 
     def test_load_batch_missing_file_raises_error(self, temp_cache_dir, mock_qb_api, sample_report_configs):
         """Test that missing file raises error."""
+        cache_mgr = CacheManager(cache_root=temp_cache_dir)
+
         config = sample_report_configs[0]
         get_report_metadata(
             mock_qb_api,
             config,
-            cache_root=temp_cache_dir,
+            cache_mgr,
         )
 
         # Load metadata - only pass the config we cached
         metadata = load_report_metadata_batch(
             [config],  # Only the one we cached
-            cache_root=temp_cache_dir,
+            cache_mgr,
         )
 
         with pytest.raises(FileNotFoundError):
             load_data_batch(
                 metadata,
                 [config["Description"]],
-                cache_root=temp_cache_dir,
+                cache_mgr,
             )

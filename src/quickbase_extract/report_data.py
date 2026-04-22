@@ -5,7 +5,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from quickbase_extract.api_handlers import handle_query
-from quickbase_extract.cache_manager import get_cache_manager
+from quickbase_extract.cache_manager import CacheManager
 
 logger = logging.getLogger(__name__)
 
@@ -45,8 +45,8 @@ def get_data(
     client,
     report_metadata: dict,
     report_desc: str,
+    cache_mgr: CacheManager,
     cache: bool = False,
-    cache_root=None,
 ) -> list[dict]:
     """Query a Quickbase table for data using cached report metadata.
 
@@ -54,8 +54,8 @@ def get_data(
         client: Quickbase API client.
         report_metadata: Full metadata dict (from load_report_metadata_batch).
         report_desc: Unique description of a specific table report.
+        cache_mgr: CacheManager instance for cache operations.
         cache: Whether to cache the retrieved data. Defaults to False.
-        cache_root: Optional cache root path. If not provided, uses CacheManager default.
 
     Returns:
         List of dicts with field labels as keys.
@@ -65,8 +65,9 @@ def get_data(
         Exception: If Quickbase API query fails.
 
     Example:
-        >>> metadata = load_report_metadata_batch(configs)
-        >>> data = get_data(client, metadata, "sales_open_deals", cache=True)
+        >>> cache_mgr = CacheManager(cache_root=Path("my_project/dev/cache"))
+        >>> metadata = load_report_metadata_batch(configs, cache_mgr)
+        >>> data = get_data(client, metadata, "sales_open_deals", cache_mgr, cache=True)
         >>> print(f"Found {len(data)} records")
     """
     info = report_metadata[report_desc]
@@ -90,7 +91,6 @@ def get_data(
 
     # Cache if requested
     if cache:
-        cache_mgr = get_cache_manager(cache_root=cache_root)
         data_path = cache_mgr.get_data_path(app_name, table_name, report_name)
         cache_mgr.write_file(data_path, json.dumps(final_list, indent=4))
         logger.info(f"{report_desc} data cached ({len(final_list)} records)")
@@ -104,8 +104,8 @@ def get_data_parallel(
     client,
     report_metadata: dict,
     report_descriptions: list[str],
+    cache_mgr: CacheManager,
     cache: bool = False,
-    cache_root=None,
     max_workers: int = 8,
 ) -> dict[str, list[dict]]:
     """Fetch multiple reports in parallel using cached report metadata.
@@ -118,8 +118,8 @@ def get_data_parallel(
         client: Quickbase API client. Should be thread-safe for concurrent use.
         report_metadata: Full metadata dict (from load_report_metadata_batch).
         report_descriptions: List of report descriptions to fetch.
+        cache_mgr: CacheManager instance for cache operations.
         cache: Whether to cache retrieved data. Defaults to False.
-        cache_root: Optional cache root path. If not provided, uses CacheManager default.
         max_workers: Maximum number of concurrent threads. Default is 8.
             Adjust based on API rate limits and system resources.
 
@@ -132,9 +132,10 @@ def get_data_parallel(
             All pending tasks are cancelled when an error occurs.
 
     Example:
-        >>> metadata = load_report_metadata_batch(configs)
+        >>> cache_mgr = CacheManager(cache_root=Path("my_project/dev/cache"))
+        >>> metadata = load_report_metadata_batch(configs, cache_mgr)
         >>> descriptions = ["sales_open_deals", "sales_contacts"]
-        >>> all_data = get_data_parallel(client, metadata, descriptions, cache=True)
+        >>> all_data = get_data_parallel(client, metadata, descriptions, cache_mgr, cache=True)
         >>> print(f"Fetched {len(all_data)} reports")
 
     Note:
@@ -157,10 +158,10 @@ def get_data_parallel(
             executor.submit(
                 get_data,
                 client,
-                report_metadata,  # Fixed: was swapped with report_desc
-                report_desc,  # Fixed: was swapped with report_metadata
+                report_metadata,
+                report_desc,
+                cache_mgr,
                 cache=cache,
-                cache_root=cache_root,
             ): report_desc
             for report_desc in report_descriptions
         }
@@ -181,13 +182,17 @@ def get_data_parallel(
     return results
 
 
-def load_data(report_metadata: dict, report_desc: str, cache_root=None) -> list[dict]:
+def load_data(
+    report_metadata: dict,
+    report_desc: str,
+    cache_mgr: CacheManager,
+) -> list[dict]:
     """Load cached data for a Quickbase report.
 
     Args:
         report_metadata: Full metadata dict (from load_report_metadata_batch).
         report_desc: Unique description of a specific table report.
-        cache_root: Optional cache root path. If not provided, uses CacheManager default.
+        cache_mgr: CacheManager instance for cache operations.
 
     Returns:
         List of dicts with field labels as keys.
@@ -197,8 +202,9 @@ def load_data(report_metadata: dict, report_desc: str, cache_root=None) -> list[
         FileNotFoundError: If cached data does not exist.
 
     Example:
-        >>> metadata = load_report_metadata_batch(configs)
-        >>> data = load_data(metadata, "sales_open_deals")
+        >>> cache_mgr = CacheManager(cache_root=Path("my_project/dev/cache"))
+        >>> metadata = load_report_metadata_batch(configs, cache_mgr)
+        >>> data = load_data(metadata, "sales_open_deals", cache_mgr)
         >>> print(f"Loaded {len(data)} records from cache")
     """
     info = report_metadata[report_desc]
@@ -206,7 +212,6 @@ def load_data(report_metadata: dict, report_desc: str, cache_root=None) -> list[
     table_name = info["table_name"]
     report_name = info["report_name"]
 
-    cache_mgr = get_cache_manager(cache_root=cache_root)
     data_path = cache_mgr.get_data_path(app_name, table_name, report_name)
 
     if not data_path.exists():
@@ -218,7 +223,7 @@ def load_data(report_metadata: dict, report_desc: str, cache_root=None) -> list[
 def load_data_batch(
     report_metadata: dict,
     report_descriptions: list[str],
-    cache_root=None,
+    cache_mgr: CacheManager,
 ) -> dict[str, list[dict]]:
     """Load cached data for multiple reports.
 
@@ -228,8 +233,7 @@ def load_data_batch(
     Args:
         report_metadata: Full metadata dict (from load_report_metadata_batch).
         report_descriptions: List of report descriptions to load.
-        cache_root: Optional cache root path. If not provided, uses
-            CacheManager default.
+        cache_mgr: CacheManager instance for cache operations.
 
     Returns:
         Dict mapping report_description -> list of record dicts.
@@ -239,9 +243,10 @@ def load_data_batch(
         FileNotFoundError: If any cached data does not exist.
 
     Example:
-        >>> metadata = load_report_metadata_batch(configs)
+        >>> cache_mgr = CacheManager(cache_root=Path("my_project/dev/cache"))
+        >>> metadata = load_report_metadata_batch(configs, cache_mgr)
         >>> descriptions = ["sales_open_deals", "sales_contacts"]
-        >>> all_data = load_data_batch(metadata, descriptions)
+        >>> all_data = load_data_batch(metadata, descriptions, cache_mgr)
         >>> print(f"Loaded {len(all_data)} reports from cache")
     """
     if not report_descriptions:
@@ -249,5 +254,5 @@ def load_data_batch(
 
     data = {}
     for report_desc in report_descriptions:
-        data[report_desc] = load_data(report_metadata, report_desc, cache_root=cache_root)
+        data[report_desc] = load_data(report_metadata, report_desc, cache_mgr)
     return data

@@ -30,17 +30,26 @@ pip install quickbase-extract
 ### Basic Usage
 
 ```python
+import quickbase_api
+from pathlib import Path
 from quickbase_extract import (
-    get_qb_client,
-    refresh_all,
+    CacheManager,
     load_report_metadata_batch,
     get_data_parallel
 )
+from quickbase_extract.cache_orchestration import ensure_cache_freshness
 
 # Initialize Quickbase client
-client = get_qb_client(
+client = quickbase_api.client(
     realm="your-realm.quickbase.com",
     user_token="YOUR_USER_TOKEN"
+)
+
+# Initialize cache manager
+cache_mgr = CacheManager(
+    cache_root=Path("my_project/dev/cache"),
+    s3_bucket="my-bucket",  # Optional: for Lambda
+    s3_prefix="my_project/dev/cache"  # Optional: for Lambda
 )
 
 # Define report configurations
@@ -61,18 +70,23 @@ report_configs = [
     }
 ]
 
-# Step 1: Refresh metadata cache (do this once or when reports change)
-refresh_all(client, report_configs)
+# Ensure cache is fresh (checks staleness and refreshes if needed)
+ensure_cache_freshness(
+    client=client,
+    report_configs=report_configs,
+    cache_mgr=cache_mgr
+)
 
-# Step 2: Load metadata from cache
-metadata = load_report_metadata_batch(report_configs)
+# Load metadata from cache
+metadata = load_report_metadata_batch(report_configs, cache_mgr)
 
-# Step 3: Fetch data for multiple reports in parallel
+# Fetch data for multiple reports in parallel
 descriptions = ["active_customers", "open_deals"]
 data = get_data_parallel(
     client,
     metadata,
     descriptions,
+    cache_mgr,
     cache=True  # Cache the data for later use
 )
 
@@ -94,13 +108,15 @@ customer_data = get_data(
     client,
     metadata,
     "active_customers",
+    cache_mgr,
     cache=True
 )
 
 # Later, load from cache without API call
 cached_data = load_data(
     metadata,
-    "active_customers"
+    "active_customers",
+    cache_mgr
 )
 ```
 
@@ -367,6 +383,45 @@ from config.reports import get_reports
 reports = get_reports()
 ```
 
+### Cache Configuration
+
+The `CacheManager` requires explicit configuration:
+
+```python
+from pathlib import Path
+from quickbase_extract import CacheManager
+
+# Local development
+cache_mgr = CacheManager(
+    cache_root=Path("my_project/dev/cache")
+)
+
+# Lambda with S3
+cache_mgr = CacheManager(
+    cache_root=Path("/tmp/my_project/dev/cache"),
+    s3_bucket="mit-bio-quickbase",  # Or set CACHE_BUCKET env var
+    s3_prefix="my_project/dev/cache"
+)
+```
+
+**Cache Structure:**
+
+Local and Lambda follow the same structure:
+```
+my_project/dev/cache/
+├── report_metadata/
+│   └── app_name/
+│       └── table_report.json
+└── report_data/
+    └── app_name/
+        └── table_report_data.json
+```
+
+S3 matches the local structure:
+```
+s3://mit-bio-quickbase/my_project/dev/cache/report_metadata/...
+```
+
 ### Best Practices
 
 1. **Use descriptive Description keys**
@@ -591,22 +646,31 @@ os.environ["QUICKBASE_CACHE_ROOT"] = "/path/to/cache"
    CACHE_BUCKET=my-quickbase-cache-bucket
    ENV=prod
    ```
-
 2. **Lambda handler example:**
 
 ```python
+import quickbase_api
+from pathlib import Path
 from quickbase_extract import (
-    get_qb_client,
+    CacheManager,
     sync_from_s3_once,
     load_report_metadata_batch,
     get_data_parallel
 )
+from quickbase_extract.cache_orchestration import ensure_cache_freshness
 import os
 
 # Initialize client (reuse across warm starts)
-client = get_qb_client(
+client = quickbase_api.client(
     realm=os.environ["QB_REALM"],
     user_token=os.environ["QB_USER_TOKEN"]
+)
+
+# Initialize cache manager
+cache_mgr = CacheManager(
+    cache_root=Path("/tmp/my_project/dev/cache"),
+    s3_bucket=os.environ["CACHE_BUCKET"],
+    s3_prefix="my_project/dev/cache"
 )
 
 # Load configs
@@ -614,10 +678,17 @@ report_configs = [...]  # Your configs
 
 def lambda_handler(event, context):
     # Sync cache from S3 on cold start
-    sync_from_s3_once()
+    sync_from_s3_once(cache_mgr)
+
+    # Ensure cache is fresh (auto-refresh if stale)
+    ensure_cache_freshness(
+        client=client,
+        report_configs=report_configs,
+        cache_mgr=cache_mgr
+    )
 
     # Load metadata from cache
-    metadata = load_report_metadata_batch(report_configs)
+    metadata = load_report_metadata_batch(report_configs, cache_mgr)
 
     # Fetch fresh data
     descriptions = event.get("reports", ["active_customers"])
@@ -625,6 +696,7 @@ def lambda_handler(event, context):
         client,
         metadata,
         descriptions,
+        cache_mgr,
         cache=True  # Will sync to S3
     )
 
@@ -650,53 +722,67 @@ my-quickbase-cache-bucket/
 
 ### Client Management
 
-#### `get_qb_client(realm, user_token, cache=True)`
+#### Creating a Quickbase Client
 
-Create or retrieve a cached Quickbase client.
-
-**Parameters:**
-- `realm` (str): Quickbase realm (e.g., "example.quickbase.com")
-- `user_token` (str): Quickbase user token
-- `cache` (bool): Whether to cache and reuse client (default: True)
-
-**Returns:** Quickbase API client instance
-
-**Raises:**
-- `ValueError`: If realm or token is empty
+Create your Quickbase client using the `quickbase-api` package directly:
 
 ```python
-client = get_qb_client("example.quickbase.com", "YOUR_TOKEN")
+import quickbase_api
+
+client = quickbase_api.client(
+    realm="example.quickbase.com",
+    user_token="YOUR_TOKEN"
+)
 ```
 
 ### Metadata Operations
 
-#### `refresh_all(client, report_configs, cache_root=None)`
-
-Fetch and cache metadata for all configured reports.
-
-**Parameters:**
-- `client`: Quickbase API client
-- `report_configs` (list[dict]): List of report configurations
-- `cache_root` (Path, optional): Custom cache directory
-
-```python
-refresh_all(client, report_configs)
-```
-
-#### `load_report_metadata_batch(report_configs, cache_root=None)`
+#### `load_report_metadata_batch(report_configs, cache_mgr)`
 
 Load metadata for all reports from cache.
 
 **Returns:** Dict mapping report descriptions to metadata
 
 ```python
-metadata = load_report_metadata_batch(report_configs)
+cache_mgr = CacheManager(cache_root=Path("my_project/dev/cache"))
+metadata = load_report_metadata_batch(report_configs, cache_mgr)
 # Returns: {"active_customers": {...}, "open_deals": {...}}
+```
+
+#### `ensure_cache_freshness(client, report_configs, cache_mgr, metadata_stale_hours=None, data_stale_hours=None, force=False)`
+
+Ensure cache is fresh; refresh metadata and/or data if empty or stale.
+
+Checks metadata and data caches independently. Refreshes only the caches that are stale, avoiding unnecessary API calls.
+
+**Parameters:**
+- `client`: Quickbase API client
+- `report_configs` (list[dict]): List of report configurations
+- `cache_mgr` (CacheManager): Cache manager instance
+- `metadata_stale_hours` (float, optional): Threshold for metadata staleness (default: 168 hours / 7 days)
+- `data_stale_hours` (float, optional): Threshold for data staleness (default: 24 hours)
+- `force` (bool): Force refresh regardless of cache state (default: False)
+
+**Environment Variables:**
+- `METADATA_STALE_HOURS`: Override default metadata staleness threshold
+- `DATA_STALE_HOURS`: Override default data staleness threshold
+- `FORCE_CACHE_REFRESH`: Set to "true" to force refresh
+
+```python
+from quickbase_extract.cache_orchestration import ensure_cache_freshness
+
+ensure_cache_freshness(
+    client=client,
+    report_configs=report_configs,
+    cache_mgr=cache_mgr,
+    metadata_stale_hours=720,  # 30 days
+    data_stale_hours=24  # 1 day
+)
 ```
 
 ### Data Operations
 
-#### `get_data(client, report_metadata, report_desc, cache=False, cache_root=None)`
+#### `get_data(client, report_metadata, report_desc, cache_mgr, cache=False)`
 
 Fetch data for a single report.
 
@@ -704,17 +790,17 @@ Fetch data for a single report.
 - `client`: Quickbase API client
 - `report_metadata` (dict): Metadata from `load_report_metadata_batch()`
 - `report_desc` (str): Report description key
+- `cache_mgr` (CacheManager): Cache manager instance
 - `cache` (bool): Whether to cache the data (default: False)
-- `cache_root` (Path, optional): Custom cache directory
 
 **Returns:** List of record dicts with field labels as keys
 
 ```python
-customers = get_data(client, metadata, "active_customers", cache=True)
-# Returns: [{"Name": "Alice", "Email": "alice@example.com"}, ...]
+cache_mgr = CacheManager(cache_root=Path("my_project/dev/cache"))
+customers = get_data(client, metadata, "active_customers", cache_mgr, cache=True)
 ```
 
-#### `get_data_parallel(client, report_metadata, report_descriptions, cache=False, cache_root=None, max_workers=8)`
+#### `get_data_parallel(client, report_metadata, report_descriptions, cache_mgr, cache=False, max_workers=8)`
 
 Fetch data for multiple reports in parallel.
 
@@ -722,8 +808,8 @@ Fetch data for multiple reports in parallel.
 - `client`: Quickbase API client
 - `report_metadata` (dict): Metadata from `load_report_metadata_batch()`
 - `report_descriptions` (list[str]): List of report description keys
+- `cache_mgr` (CacheManager): Cache manager instance
 - `cache` (bool): Whether to cache the data (default: False)
-- `cache_root` (Path, optional): Custom cache directory
 - `max_workers` (int): Maximum concurrent threads (default: 8)
 
 **Returns:** Dict mapping report descriptions to data lists
@@ -733,39 +819,62 @@ data = get_data_parallel(
     client,
     metadata,
     ["active_customers", "open_deals"],
+    cache_mgr,
     cache=True,
     max_workers=4
 )
 ```
 
-#### `load_data(report_metadata, report_desc, cache_root=None)`
+#### `load_data(report_metadata, report_desc, cache_mgr)`
 
 Load cached data for a single report.
 
 ```python
-customers = load_data(metadata, "active_customers")
+customers = load_data(metadata, "active_customers", cache_mgr)
 ```
 
-#### `load_data_batch(report_metadata, report_descriptions, cache_root=None)`
+#### `load_data_batch(report_metadata, report_descriptions, cache_mgr)`
 
 Load cached data for multiple reports.
 
 ```python
-data = load_data_batch(metadata, ["active_customers", "open_deals"])
+data = load_data_batch(metadata, ["active_customers", "open_deals"], cache_mgr)
 ```
 
 ### Cache Management
 
-#### `sync_from_s3_once(force=False)`
+#### `CacheManager(cache_root, s3_bucket=None, s3_prefix=None)`
+
+Manages cache reads/writes for both local and Lambda environments.
+
+**Parameters:**
+- `cache_root` (Path): Path to cache root directory (required)
+- `s3_bucket` (str, optional): S3 bucket name for Lambda. Reads from `CACHE_BUCKET` env var if not provided
+- `s3_prefix` (str, optional): Path prefix within S3 bucket (required if using S3 on Lambda)
+
+```python
+# Local
+cache_mgr = CacheManager(cache_root=Path("my_project/dev/cache"))
+
+# Lambda
+cache_mgr = CacheManager(
+    cache_root=Path("/tmp/my_project/dev/cache"),
+    s3_bucket="mit-bio-quickbase",
+    s3_prefix="my_project/dev/cache"
+)
+```
+
+#### `sync_from_s3_once(cache_mgr, force=False)`
 
 Download cache from S3 to /tmp on Lambda cold start.
 
 **Parameters:**
+- `cache_mgr` (CacheManager): Cache manager instance
 - `force` (bool): Force sync even if already synced (default: False)
 
 ```python
-sync_from_s3_once()  # On cold start
-sync_from_s3_once(force=True)  # Force re-sync
+sync_from_s3_once(cache_mgr)  # On cold start
+sync_from_s3_once(cache_mgr, force=True)  # Force re-sync
 ```
 
 #### `is_cache_synced()`
@@ -775,63 +884,6 @@ Check if cache has been synced in this invocation.
 ```python
 if not is_cache_synced():
     print("Cache needs syncing")
-```
-
-#### `ensure_cache_freshness(refresh_callback, metadata_stale_hours=None, data_stale_hours=None, force=False)`
-
-Ensure cache is fresh; refresh if empty or stale.
-
-Checks if metadata and/or data caches are empty or stale. If either is, calls the provided refresh callback to refresh both. Gracefully handles refresh failures (logs but does not re-raise).
-
-**Parameters:**
-- `refresh_callback` (Callable): Function that refreshes the cache (takes no arguments)
-- `metadata_stale_hours` (float, optional): Threshold for metadata staleness. If not provided, reads from `METADATA_STALE_HOURS` env var (default: 168 hours / 7 days)
-- `data_stale_hours` (float, optional): Threshold for data staleness. If not provided, reads from `DATA_STALE_HOURS` env var (default: 24 hours)
-- `force` (bool): If True, skips checks and refreshes immediately. Can also be triggered via `FORCE_CACHE_REFRESH` environment variable (default: False)
-
-**Raises:**
-- `ValueError`: If refresh_callback is not callable
-
-```python
-from quickbase_extract import ensure_cache_freshness
-from bif.quickbase import refresh_report_metadata
-
-# In your Lambda handler or initialization
-ensure_cache_freshness(
-    refresh_callback=refresh_report_metadata.main,
-    metadata_stale_hours=720,  # 30 days
-    data_stale_hours=24        # 1 day
-)
-```
-
-### Cache Monitoring
-
-#### `check_cache_freshness(threshold_hours=36, cache_root=None)`
-
-Check for stale cache files.
-
-**Parameters:**
-- `threshold_hours` (float): Files older than this are stale (default: 36)
-- `cache_root` (Path, optional): Custom cache directory
-
-**Returns:** List of stale file info dicts
-
-```python
-stale_files = check_cache_freshness(threshold_hours=24)
-if stale_files:
-    print(f"Found {len(stale_files)} stale files")
-```
-
-#### `get_cache_summary(cache_root=None)`
-
-Get summary statistics for cache directory.
-
-**Returns:** Dict with total files, size, oldest/newest file info
-
-```python
-summary = get_cache_summary()
-print(f"Cache: {summary['total_files']} files, {summary['total_size_mb']} MB")
-print(f"Oldest: {summary['oldest_file']} ({summary['oldest_age_hours']}h old)")
 ```
 
 ### Error Handling
@@ -1061,38 +1113,59 @@ cache_path = os.path.expanduser("~/.quickbase-cache")
 cache_mgr = CacheManager(cache_root=cache_path)
 ```
 
+### Issue: "cache_root is required"
+
+**Solution:** `CacheManager` now requires explicit `cache_root` parameter:
+
+```python
+# Old (no longer works)
+from quickbase_extract import get_cache_manager
+cache_mgr = get_cache_manager()  # ❌ Removed
+
+# New (required)
+from quickbase_extract import CacheManager
+from pathlib import Path
+cache_mgr = CacheManager(cache_root=Path("my_project/dev/cache"))  # ✅
+```
+
 ## Cache Freshness Management
 
-### Automatic Cache Refresh on Cold Start
+### Automatic Cache Refresh
 
 Use `ensure_cache_freshness()` to automatically check and refresh cache if stale:
 
 ```python
-from quickbase_extract import (
-    sync_from_s3_once,
-    ensure_cache_freshness,
-    load_report_metadata_batch,
-    get_data_parallel
-)
-from bif.quickbase import refresh_report_metadata
+from quickbase_extract.cache_orchestration import ensure_cache_freshness
 
 def lambda_handler(event, context):
     # Sync from S3 on cold start
-    sync_from_s3_once()
+    sync_from_s3_once(cache_mgr)
 
     # Ensure cache is fresh (auto-refresh if needed)
     ensure_cache_freshness(
-        refresh_callback=refresh_report_metadata.main,
+        client=client,
+        report_configs=report_configs,
+        cache_mgr=cache_mgr,
         metadata_stale_hours=720,  # 30 days
         data_stale_hours=24         # 1 day
     )
 
     # Load metadata and proceed
-    metadata = load_report_metadata_batch(report_configs)
-    data = get_data_parallel(client, metadata, descriptions, cache=True)
+    metadata = load_report_metadata_batch(report_configs, cache_mgr)
+    data = get_data_parallel(client, metadata, descriptions, cache_mgr, cache=True)
 
     return {"statusCode": 200, "body": "Success"}
 ```
+
+### Independent Refresh
+
+Metadata and data are refreshed independently based on their staleness:
+
+- **Metadata only stale**: Refreshes only metadata (table structure changes rarely)
+- **Data only stale**: Refreshes only data (data changes frequently)
+- **Both stale**: Refreshes both
+
+This minimizes unnecessary API calls.
 
 ### Force Refresh
 
@@ -1101,14 +1174,20 @@ Force a cache refresh either programmatically or via environment variable:
 ```python
 # Programmatic force
 ensure_cache_freshness(
-    refresh_callback=refresh_report_metadata.main,
+    client=client,
+    report_configs=report_configs,
+    cache_mgr=cache_mgr,
     force=True  # Always refresh, skip age checks
 )
 
 # Via environment variable (set in Lambda before invocation)
 # FORCE_CACHE_REFRESH=true
 # Then call normally:
-ensure_cache_freshness(refresh_callback=refresh_report_metadata.main)
+ensure_cache_freshness(
+    client=client,
+    report_configs=report_configs,
+    cache_mgr=cache_mgr
+)
 ```
 
 ## Advanced Usage

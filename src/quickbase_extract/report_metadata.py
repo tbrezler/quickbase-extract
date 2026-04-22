@@ -6,10 +6,9 @@ configurations, filters) and caches them as JSON files for use by report_data.py
 
 import json
 import logging
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from quickbase_extract.cache_manager import get_cache_manager
+from quickbase_extract.cache_manager import CacheManager
 from quickbase_extract.utils import find_report, normalize_name
 
 logger = logging.getLogger(__name__)
@@ -60,7 +59,11 @@ def fetch_report_data(client, app_id: str, table_name: str, report_name: str) ->
     }
 
 
-def get_report_metadata(client, report_config: dict, cache_root=None) -> None:
+def get_report_metadata(
+    client,
+    report_config: dict,
+    cache_mgr: CacheManager,
+) -> None:
     """Fetch and cache table/report metadata from Quickbase.
 
     Queries Quickbase for table ID, field mappings, report configuration,
@@ -77,8 +80,7 @@ def get_report_metadata(client, report_config: dict, cache_root=None) -> None:
             - App ID: Quickbase application ID
             - Table: Table name within the application
             - Report: Report name within the table
-        cache_root: Optional cache root path. If not provided, uses
-            CacheManager default.
+        cache_mgr: CacheManager instance for cache operations.
 
     Returns:
         None. Writes metadata to cache as JSON file.
@@ -89,13 +91,14 @@ def get_report_metadata(client, report_config: dict, cache_root=None) -> None:
         Exception: If any Quickbase API call fails.
 
     Example:
+        >>> cache_mgr = CacheManager(cache_root=Path("my_project/dev/cache"))
         >>> config = {
         ...     "App": "Sales Tracker",
         ...     "App ID": "bq8xyx9z",
         ...     "Table": "Opportunities",
         ...     "Report": "Open Deals"
         ... }
-        >>> get_report_metadata(qb_client, config)
+        >>> get_report_metadata(qb_client, config, cache_mgr)
     """
     app_name = report_config["App"]
     app_id = report_config["App ID"]
@@ -121,12 +124,16 @@ def get_report_metadata(client, report_config: dict, cache_root=None) -> None:
     }
 
     # Cache the metadata
-    cache_mgr = get_cache_manager(cache_root=cache_root)
     md_path = cache_mgr.get_metadata_path(report_md["app_name"], report_md["table_name"], report_md["report_name"])
     cache_mgr.write_file(md_path, json.dumps(report_md, indent=4))
 
 
-def get_report_metadata_parallel(client, report_configs: list[dict], cache_root=None, max_workers: int = 8) -> None:
+def get_report_metadata_parallel(
+    client,
+    report_configs: list[dict],
+    cache_mgr: CacheManager,
+    max_workers: int = 8,
+) -> None:
     """Fetch multiple report metadata in parallel using thread pool.
 
     Executes metadata fetching for multiple reports concurrently to improve
@@ -141,8 +148,7 @@ def get_report_metadata_parallel(client, report_configs: list[dict], cache_root=
             - App ID: Quickbase application ID
             - Table: Table name within the application
             - Report: Report name within the table
-        cache_root: Optional cache root path. If not provided, uses
-            CacheManager default.
+        cache_mgr: CacheManager instance for cache operations.
         max_workers: Maximum number of concurrent threads. Default is 8.
             Adjust based on API rate limits and system resources.
 
@@ -156,6 +162,7 @@ def get_report_metadata_parallel(client, report_configs: list[dict], cache_root=
             All pending tasks are cancelled when an error occurs.
 
     Example:
+        >>> cache_mgr = CacheManager(cache_root=Path("my_project/dev/cache"))
         >>> configs = [
         ...     {
         ...         "App": "Sales Tracker",
@@ -170,7 +177,7 @@ def get_report_metadata_parallel(client, report_configs: list[dict], cache_root=
         ...         "Report": "Active Contacts"
         ...     }
         ... ]
-        >>> get_report_metadata_parallel(qb_client, configs)
+        >>> get_report_metadata_parallel(qb_client, configs, cache_mgr)
 
     Note:
         - Ensure the Quickbase client can handle concurrent requests
@@ -191,7 +198,7 @@ def get_report_metadata_parallel(client, report_configs: list[dict], cache_root=
                 get_report_metadata,
                 client,
                 report_config,
-                cache_root,
+                cache_mgr,
             ): f"{report_config['App']}:{report_config['Table']}:{report_config['Report']}"
             for report_config in report_configs
         }
@@ -210,13 +217,17 @@ def get_report_metadata_parallel(client, report_configs: list[dict], cache_root=
     logger.info(f"Successfully completed parallel fetch for all {total_reports} reports")
 
 
-def load_report_metadata(report_desc: str, report_configs: list[dict], cache_root=None) -> dict:
+def load_report_metadata(
+    report_desc: str,
+    report_configs: list[dict],
+    cache_mgr: CacheManager,
+) -> dict:
     """Load cached report metadata from disk.
 
     Args:
         report_desc: Unique description of a specific table report.
         report_configs: List of report configuration dicts (used to find matching report).
-        cache_root: Optional cache root path. If not provided, uses CacheManager default.
+        cache_mgr: CacheManager instance for cache operations.
 
     Returns:
         Dict containing table ID, field mappings, report config, and filter.
@@ -227,7 +238,6 @@ def load_report_metadata(report_desc: str, report_configs: list[dict], cache_roo
     """
     report = find_report(report_configs, report_desc)
 
-    cache_mgr = get_cache_manager(cache_root=cache_root)
     # Must normalize names to match how they were saved
     md_path = cache_mgr.get_metadata_path(
         normalize_name(report["App"]), normalize_name(report["Table"]), normalize_name(report["Report"])
@@ -241,7 +251,10 @@ def load_report_metadata(report_desc: str, report_configs: list[dict], cache_roo
     return json.loads(cache_mgr.read_file(md_path))
 
 
-def load_report_metadata_batch(report_configs: list[dict], cache_root=None) -> dict:
+def load_report_metadata_batch(
+    report_configs: list[dict],
+    cache_mgr: CacheManager,
+) -> dict:
     """Load metadata for all reports from cache.
 
     Sequentially loads cached metadata for each report configuration.
@@ -250,8 +263,7 @@ def load_report_metadata_batch(report_configs: list[dict], cache_root=None) -> d
     Args:
         report_configs: List of report configuration dicts, each containing
             a 'Description' key used as the lookup key.
-        cache_root: Optional cache root path. If not provided, uses
-            CacheManager default.
+        cache_mgr: CacheManager instance for cache operations.
 
     Returns:
         Dict mapping report descriptions to their metadata dicts.
@@ -261,8 +273,9 @@ def load_report_metadata_batch(report_configs: list[dict], cache_root=None) -> d
         FileNotFoundError: If any report metadata is not cached.
 
     Example:
+        >>> cache_mgr = CacheManager(cache_root=Path("my_project/dev/cache"))
         >>> configs = [{"Description": "sales_open_deals", ...}, ...]
-        >>> all_metadata = load_all_report_metadata(configs)
+        >>> all_metadata = load_report_metadata_batch(configs, cache_mgr)
         >>> sales_metadata = all_metadata["sales_open_deals"]
     """
     if not report_configs:
@@ -271,46 +284,5 @@ def load_report_metadata_batch(report_configs: list[dict], cache_root=None) -> d
     metadata = {}
     for config in report_configs:
         report_desc = config["Description"]
-        metadata[report_desc] = load_report_metadata(report_desc, report_configs, cache_root=cache_root)
+        metadata[report_desc] = load_report_metadata(report_desc, report_configs, cache_mgr)
     return metadata
-
-
-def refresh_all(client, report_configs: list[dict], cache_root=None) -> None:
-    """Refresh all report metadata from Quickbase.
-
-    Fetches fresh metadata from Quickbase API for all configured reports
-    and updates the local cache. Uses parallel fetching for improved performance.
-
-    Args:
-        client: Quickbase API client.
-        report_configs: List of report configuration dicts with keys:
-            - App: Application display name
-            - App ID: Quickbase application ID
-            - Table: Table name
-            - Report: Report name
-        cache_root: Optional cache root path. If not provided, uses
-            CacheManager default.
-
-    Returns:
-        None. Updates cached metadata files on disk.
-
-    Raises:
-        Exception: If any metadata fetch fails. Uses fail-fast behavior.
-
-    Example:
-        >>> refresh_all(qb_client, report_configs)
-        # INFO: Refreshing metadata for 15 reports.
-        # INFO: Report metadata refresh time: 3.421s
-    """
-    if not report_configs:
-        logger.warning("No report configs provided, nothing to refresh")
-        return
-
-    logger.info(f"Refreshing metadata for {len(report_configs)} reports")
-    report_md_start = time.time()
-
-    # Use parallel fetching for performance
-    get_report_metadata_parallel(client, report_configs, cache_root=cache_root)
-
-    elapsed = round(time.time() - report_md_start, 3)
-    logger.info(f"Report metadata refresh completed in {elapsed}s")

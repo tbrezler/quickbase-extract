@@ -187,12 +187,8 @@ def caplog_setup(caplog):
 @pytest.fixture(autouse=True)
 def reset_singletons():
     """Reset all singleton instances before each test."""
-    from quickbase_extract.cache_manager import _reset_cache_manager
     from quickbase_extract.cache_sync import _reset_cache_sync
-    from quickbase_extract.client import _reset_client_cache
 
     yield
 
-    _reset_cache_manager()
     _reset_cache_sync()
-    _reset_client_cache()

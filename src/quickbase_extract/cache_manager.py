@@ -2,7 +2,7 @@
 
 import logging
 import os
-from collections.abc import Callable
+import time
 from pathlib import Path
 
 import boto3
@@ -22,35 +22,60 @@ class CacheManager:
     """Manages cache reads/writes for both local and Lambda environments.
 
     Supports local file-based caching and S3-backed caching on Lambda.
-    Cache root path is configurable via QUICKBASE_CACHE_ROOT environment variable.
+    Cache root path must be explicitly provided - no defaults to ensure
+    clear intent and avoid configuration issues.
+
+    Args:
+        cache_root: Path to cache root directory (required). Should follow pattern:
+            - Local: my-project/src/my_project/quickbase/dev/cache/
+            - Lambda: /tmp/my_project/dev/cache/
+        s3_bucket: S3 bucket name for Lambda persistence. If not provided,
+            reads from CACHE_BUCKET environment variable.
+        s3_prefix: Path prefix within S3 bucket. Should match cache_root structure.
+            Example: "my_project/dev/cache"
+
+    Example:
+        >>> # Local development
+        >>> cache_mgr = CacheManager(
+        ...     cache_root=Path("my_project/quickbase/dev/cache"),
+        ... )
+        >>>
+        >>> # Lambda with S3
+        >>> cache_mgr = CacheManager(
+        ...     cache_root=Path("/tmp/my_project/dev/cache"),
+        ...     s3_bucket="mit-bio-quickbase",
+        ...     s3_prefix="my_project/dev/cache",
+        ... )
     """
 
-    def __init__(self, cache_root: Path | None = None):
+    def __init__(
+        self,
+        cache_root: Path,
+        s3_bucket: str | None = None,
+        s3_prefix: str | None = None,
+    ):
         """Initialize the cache manager.
 
         Args:
-            cache_root: Path to cache root directory. If not provided, uses
-                QUICKBASE_CACHE_ROOT env var, or defaults based on environment.
+            cache_root: Path to cache root directory (required).
+            s3_bucket: S3 bucket name. If not provided, reads from CACHE_BUCKET env var.
+            s3_prefix: Path prefix within S3 bucket (required if using S3).
+
+        Raises:
+            ValueError: If cache_root is not provided or if s3_prefix is missing on Lambda.
         """
+        if not cache_root:
+            raise ValueError("cache_root is required")
+
+        self.cache_root = Path(cache_root)
         self.is_lambda = bool(os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
-        self.environment = os.environ.get("ENV", "dev")
-        self.s3_bucket = os.environ.get("CACHE_BUCKET")
+        self.s3_bucket = s3_bucket or os.environ.get("CACHE_BUCKET")
+        self.s3_prefix = s3_prefix
         self.s3_client = boto3.client("s3") if self.is_lambda else None
 
-        # Determine cache root path
-        if cache_root:
-            # Explicitly provided
-            self.cache_root = Path(cache_root)
-        elif os.environ.get("QUICKBASE_CACHE_ROOT"):
-            # From environment variable
-            self.cache_root = Path(os.environ.get("QUICKBASE_CACHE_ROOT"))
-        else:
-            # Default based on environment
-            if self.is_lambda:
-                self.cache_root = Path("/tmp/quickbase-extract/data")
-            else:
-                # Local: use current working directory or home
-                self.cache_root = Path.cwd() / ".quickbase-cache" / self.environment
+        # Validate S3 configuration on Lambda
+        if self.is_lambda and self.s3_bucket and not self.s3_prefix:
+            raise ValueError("s3_prefix is required when using S3 on Lambda")
 
         self.cache_root.mkdir(parents=True, exist_ok=True)
         logger.debug(f"Cache root: {self.cache_root}")
@@ -68,7 +93,7 @@ class CacheManager:
 
         Example:
             >>> cache_mgr.get_metadata_path("Sales Tracker", "Opportunities", "Open Deals")
-            PosixPath('.quickbase-cache/dev/report_metadata/sales_tracker/opportunities_open_deals.json')
+            PosixPath('my_project/dev/cache/report_metadata/sales_tracker/opportunities_open_deals.json')
         """
         app_fmt = normalize_name(app_name)
         table_fmt = normalize_name(table_name)
@@ -91,7 +116,7 @@ class CacheManager:
 
         Example:
             >>> cache_mgr.get_data_path("Sales Tracker", "Opportunities", "Open Deals")
-            PosixPath('.quickbase-cache/dev/report_data/sales_tracker/opportunities_open_deals_data.json')
+            PosixPath('my_project/dev/cache/report_data/sales_tracker/opportunities_open_deals_data.json')
         """
         app_fmt = normalize_name(app_name)
         table_fmt = normalize_name(table_name)
@@ -117,7 +142,7 @@ class CacheManager:
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(content)
 
-        if self.is_lambda and self.s3_client:
+        if self.is_lambda and self.s3_client and self.s3_bucket:
             self._sync_to_s3(file_path)
 
     def read_file(self, file_path: Path) -> str:
@@ -150,7 +175,7 @@ class CacheManager:
         """
         try:
             relative_path = file_path.relative_to(self.cache_root)
-            s3_key = f"{self.environment}/{relative_path}"
+            s3_key = f"{self.s3_prefix}/{relative_path}" if self.s3_prefix else str(relative_path)
             self.s3_client.upload_file(str(file_path), self.s3_bucket, s3_key)
             logger.info(f"Synced {s3_key} to S3")
         except Exception as e:
@@ -158,7 +183,7 @@ class CacheManager:
             raise
 
     def sync_from_s3(self) -> None:
-        """Download all cache files from S3 to /tmp (Lambda only).
+        """Download all cache files from S3 to local cache_root (Lambda only).
 
         Restores cache from S3 at Lambda initialization. Only runs on Lambda.
         Logs and continues if bucket not configured.
@@ -178,10 +203,12 @@ class CacheManager:
             logger.debug("CACHE_BUCKET not set, skipping S3 sync")
             return
 
-        logger.info(f"Syncing cache from S3 for environment: {self.environment}")
+        prefix = f"{self.s3_prefix}/" if self.s3_prefix else ""
+        logger.info(f"Syncing cache from S3 bucket: {self.s3_bucket}, prefix: {prefix}")
+
         try:
             paginator = self.s3_client.get_paginator("list_objects_v2")
-            pages = paginator.paginate(Bucket=self.s3_bucket, Prefix=f"{self.environment}/")
+            pages = paginator.paginate(Bucket=self.s3_bucket, Prefix=prefix)
 
             file_count = 0
             for page in pages:
@@ -190,8 +217,12 @@ class CacheManager:
                     if not s3_key or s3_key.endswith("/"):
                         continue
 
-                    # Extract relative path (remove environment prefix)
-                    relative_key = s3_key.replace(f"{self.environment}/", "", 1)
+                    # Extract relative path (remove prefix)
+                    if self.s3_prefix:
+                        relative_key = s3_key.replace(f"{self.s3_prefix}/", "", 1)
+                    else:
+                        relative_key = s3_key
+
                     local_path = self.cache_root / relative_key
 
                     local_path.parent.mkdir(parents=True, exist_ok=True)
@@ -270,150 +301,8 @@ class CacheManager:
         if not json_files:
             return 0
 
-        # Find the oldest file
-        import time
-
         oldest_mtime = min(f.stat().st_mtime for f in json_files)
+        # 60 sec × 60 min = 3600
         age_hours = (time.time() - oldest_mtime) / 3600
 
         return round(age_hours, 1)
-
-
-def ensure_cache_freshness(
-    refresh_callback: Callable[[], None],
-    metadata_stale_hours: float | None = None,
-    data_stale_hours: float | None = None,
-    force: bool = False,
-) -> None:
-    """Ensure cache is fresh; refresh if empty or stale.
-
-    Checks if metadata and/or data caches are empty or stale. If either is,
-    calls the provided refresh callback to refresh both. Gracefully handles
-    refresh failures (logs but does not re-raise).
-
-    This is the primary orchestration function for cache freshness management.
-    Use it in your Lambda handlers or initialization code to ensure cache
-    is ready before processing.
-
-    Args:
-        refresh_callback: Callable that refreshes the cache. Should take no
-            arguments. Should raise an exception if refresh fails (exceptions
-            will be logged but not re-raised).
-        metadata_stale_hours: Threshold (hours) for metadata staleness.
-            If not provided, reads from METADATA_STALE_HOURS env var,
-            falls back to DEFAULT_METADATA_STALE_HOURS (168 hours / 7 days).
-        data_stale_hours: Threshold (hours) for data staleness.
-            If not provided, reads from DATA_STALE_HOURS env var,
-            falls back to DEFAULT_DATA_STALE_HOURS (24 hours).
-        force: If True, skips all checks and refreshes immediately.
-            Can also be triggered via FORCE_CACHE_REFRESH environment variable.
-
-    Environment Variables:
-        METADATA_STALE_HOURS: Threshold for metadata cache staleness (in hours).
-        DATA_STALE_HOURS: Threshold for data cache staleness (in hours).
-        FORCE_CACHE_REFRESH: If set to "true" (case-insensitive), forces a
-            cache refresh even if cache appears fresh.
-
-    Raises:
-        ValueError: If refresh_callback is not callable.
-
-    Example:
-        >>> # In your Lambda handler or startup code
-        >>> from bif.quickbase import refresh_report_metadata
-        >>>
-        >>> ensure_cache_freshness(
-        ...     refresh_callback=refresh_report_metadata.main,
-        ...     metadata_stale_hours=720,  # 30 days
-        ... )
-    """
-    if not callable(refresh_callback):
-        raise ValueError("refresh_callback must be callable")
-
-    # Resolve thresholds from arguments, environment, or defaults
-    if metadata_stale_hours is None:
-        metadata_stale_hours = float(os.environ.get("METADATA_STALE_HOURS", DEFAULT_METADATA_STALE_HOURS))
-    if data_stale_hours is None:
-        data_stale_hours = float(os.environ.get("DATA_STALE_HOURS", DEFAULT_DATA_STALE_HOURS))
-
-    # Check for force refresh via environment variable
-    force_env = os.environ.get("FORCE_CACHE_REFRESH", "").lower() == "true"
-    should_force = force or force_env
-
-    cache_mgr = get_cache_manager()
-
-    # Check metadata cache
-    metadata_empty = cache_mgr.is_cache_empty("metadata")
-    metadata_age = cache_mgr.get_cache_age_hours("metadata")
-    metadata_stale = metadata_age > metadata_stale_hours
-
-    # Check data cache
-    data_empty = cache_mgr.is_cache_empty("data")
-    data_age = cache_mgr.get_cache_age_hours("data")
-    data_stale = data_age > data_stale_hours
-
-    # Determine if refresh is needed
-    refresh_needed = should_force or metadata_empty or metadata_stale or data_empty or data_stale
-
-    if not refresh_needed:
-        logger.debug(
-            f"Cache is fresh: metadata {metadata_age}h (threshold: {metadata_stale_hours}h), "
-            f"data {data_age}h (threshold: {data_stale_hours}h)"
-        )
-        return
-
-    # Determine reason(s) for refresh
-    reasons = []
-    if should_force:
-        reasons.append("force=True")
-    if metadata_empty:
-        reasons.append("metadata empty")
-    elif metadata_stale:
-        reasons.append(f"metadata stale ({metadata_age}h > {metadata_stale_hours}h)")
-    if data_empty:
-        reasons.append("data empty")
-    elif data_stale:
-        reasons.append(f"data stale ({data_age}h > {data_stale_hours}h)")
-
-    logger.warning(f"Cache refresh needed: {'; '.join(reasons)}")
-
-    # Attempt refresh
-    try:
-        refresh_callback()
-        logger.info("Cache refresh completed successfully")
-    except Exception as e:
-        logger.error(f"Cache refresh failed: {e}", exc_info=True)
-
-
-# Singleton instance
-_cache_manager: CacheManager | None = None
-
-
-def get_cache_manager(cache_root: Path | None = None) -> CacheManager:
-    """Get or create cache manager singleton instance.
-
-    Args:
-        cache_root: Optional path to cache root. Only used on first call.
-            Subsequent calls ignore this parameter and return the existing instance.
-
-    Returns:
-        Singleton CacheManager instance.
-
-    Warning:
-        The cache_root parameter is only respected on the first call. If you need
-        to change cache locations, use CacheManager directly instead of the singleton.
-
-    Example:
-        >>> cache_mgr = get_cache_manager(Path("/custom/cache"))
-        >>> # Later calls ignore cache_root
-        >>> same_mgr = get_cache_manager(Path("/different/path"))  # Returns first instance
-    """
-    global _cache_manager
-    if _cache_manager is None:
-        _cache_manager = CacheManager(cache_root=cache_root)
-    return _cache_manager
-
-
-def _reset_cache_manager() -> None:
-    """Reset the singleton cache manager. For testing only."""
-    global _cache_manager
-    _cache_manager = None

@@ -1,63 +1,51 @@
 """Unit tests for cache_manager module."""
 
-import logging
 import os
 import time
 from unittest.mock import MagicMock, patch
 
 import pytest
-from quickbase_extract.cache_manager import (
-    CacheManager,
-    _reset_cache_manager,
-    ensure_cache_freshness,
-    get_cache_manager,
-)
+from quickbase_extract.cache_manager import CacheManager
 
 
 class TestCacheManagerInit:
     """Tests for CacheManager initialization."""
 
+    def test_init_requires_cache_root(self):
+        """Test that cache_root is required."""
+        with pytest.raises(TypeError):
+            CacheManager()
+
+    def test_init_with_cache_root(self, temp_cache_dir):
+        """Test initialization with cache_root."""
+        mgr = CacheManager(cache_root=temp_cache_dir)
+
+        assert mgr.cache_root == temp_cache_dir
+        assert mgr.cache_root.exists()
+
     def test_init_local_environment(self, temp_cache_dir, monkeypatch):
         """Test initialization in local environment."""
         monkeypatch.delenv("AWS_LAMBDA_FUNCTION_NAME", raising=False)
-        monkeypatch.setenv("ENV", "dev")
 
         mgr = CacheManager(cache_root=temp_cache_dir)
 
         assert mgr.is_lambda is False
-        assert mgr.environment == "dev"
-        assert mgr.cache_root == temp_cache_dir
+        assert mgr.s3_client is None
 
-    def test_init_lambda_environment(self, monkeypatch):
+    def test_init_lambda_environment(self, temp_cache_dir, monkeypatch):
         """Test initialization in Lambda environment."""
         monkeypatch.setenv("AWS_LAMBDA_FUNCTION_NAME", "test-function")
-        monkeypatch.setenv("ENV", "prod")
+        monkeypatch.setenv("CACHE_BUCKET", "my-bucket")
 
-        mgr = CacheManager()
+        with patch("quickbase_extract.cache_manager.boto3.client") as mock_boto:
+            mgr = CacheManager(
+                cache_root=temp_cache_dir,
+                s3_bucket="my-bucket",
+                s3_prefix="project/dev/cache",
+            )
 
-        assert mgr.is_lambda is True
-        assert mgr.environment == "prod"
-        assert "/tmp/quickbase-extract/data" in str(mgr.cache_root)
-
-    def test_init_with_cache_root_env_var(self, temp_cache_dir, monkeypatch):
-        """Test initialization with QUICKBASE_CACHE_ROOT env var."""
-        monkeypatch.delenv("AWS_LAMBDA_FUNCTION_NAME", raising=False)
-        monkeypatch.setenv("QUICKBASE_CACHE_ROOT", str(temp_cache_dir))
-
-        mgr = CacheManager()
-
-        assert mgr.cache_root == temp_cache_dir
-
-    def test_init_explicit_cache_root_takes_precedence(self, temp_cache_dir, monkeypatch):
-        """Test that explicit cache_root takes precedence over env var."""
-        other_dir = temp_cache_dir / "other"
-        other_dir.mkdir()
-
-        monkeypatch.setenv("QUICKBASE_CACHE_ROOT", str(other_dir))
-
-        mgr = CacheManager(cache_root=temp_cache_dir)
-
-        assert mgr.cache_root == temp_cache_dir
+            assert mgr.is_lambda is True
+            mock_boto.assert_called_once_with("s3")
 
     def test_init_creates_cache_root(self, temp_cache_dir):
         """Test that cache root is created if it doesn't exist."""
@@ -69,14 +57,18 @@ class TestCacheManagerInit:
 
         assert nested_dir.exists()
 
-    def test_init_s3_client_on_lambda(self, monkeypatch):
+    def test_init_s3_client_on_lambda(self, temp_cache_dir, monkeypatch):
         """Test that S3 client is created only on Lambda."""
         monkeypatch.setenv("AWS_LAMBDA_FUNCTION_NAME", "test-function")
         monkeypatch.setenv("CACHE_BUCKET", "my-bucket")
 
         with patch("quickbase_extract.cache_manager.boto3.client") as mock_boto:
             # Create CacheManager - this should call boto3.client
-            CacheManager()
+            CacheManager(
+                cache_root=temp_cache_dir,
+                s3_bucket="my-bucket",
+                s3_prefix="project/dev/cache",
+            )
             mock_boto.assert_called_once_with("s3")
 
     def test_init_no_s3_client_locally(self, temp_cache_dir, monkeypatch):
@@ -86,6 +78,17 @@ class TestCacheManagerInit:
         with patch("quickbase_extract.cache_manager.boto3.client") as mock_boto:
             CacheManager(cache_root=temp_cache_dir)
             mock_boto.assert_not_called()
+
+    def test_init_validates_s3_prefix_on_lambda(self, temp_cache_dir, monkeypatch):
+        """Test that s3_prefix is required when using S3 on Lambda."""
+        monkeypatch.setenv("AWS_LAMBDA_FUNCTION_NAME", "test-function")
+
+        with pytest.raises(ValueError, match="s3_prefix is required"):
+            CacheManager(
+                cache_root=temp_cache_dir,
+                s3_bucket="my-bucket",
+                s3_prefix=None,
+            )
 
 
 class TestCacheManagerPaths:
@@ -182,13 +185,16 @@ class TestCacheManagerFileOperations:
         """Test that write_file syncs to S3 on Lambda."""
         monkeypatch.setenv("AWS_LAMBDA_FUNCTION_NAME", "test-function")
         monkeypatch.setenv("CACHE_BUCKET", "my-bucket")
-        monkeypatch.setenv("ENV", "dev")
 
         with patch("quickbase_extract.cache_manager.boto3.client") as mock_boto:
             mock_s3 = MagicMock()
             mock_boto.return_value = mock_s3
 
-            mgr = CacheManager(cache_root=temp_cache_dir)
+            mgr = CacheManager(
+                cache_root=temp_cache_dir,
+                s3_bucket="my-bucket",
+                s3_prefix="project/dev/cache",
+            )
             test_file = temp_cache_dir / "test.json"
             mgr.write_file(test_file, "content")
 
@@ -241,7 +247,6 @@ class TestCacheManagerS3Sync:
         """Test that sync_from_s3 downloads files from S3."""
         monkeypatch.setenv("AWS_LAMBDA_FUNCTION_NAME", "test-function")
         monkeypatch.setenv("CACHE_BUCKET", "my-bucket")
-        monkeypatch.setenv("ENV", "dev")
 
         with patch("quickbase_extract.cache_manager.boto3.client") as mock_boto:
             mock_s3 = MagicMock()
@@ -254,13 +259,17 @@ class TestCacheManagerS3Sync:
             mock_paginator.paginate.return_value = [
                 {
                     "Contents": [
-                        {"Key": "dev/report_metadata/app/table_report.json"},
-                        {"Key": "dev/report_data/app/table_data.json"},
+                        {"Key": "project/dev/cache/report_metadata/app/table_report.json"},
+                        {"Key": "project/dev/cache/report_data/app/table_data.json"},
                     ]
                 }
             ]
 
-            mgr = CacheManager(cache_root=temp_cache_dir)
+            mgr = CacheManager(
+                cache_root=temp_cache_dir,
+                s3_bucket="my-bucket",
+                s3_prefix="project/dev/cache",
+            )
             mgr.sync_from_s3()
 
             # Should download each file
@@ -270,7 +279,6 @@ class TestCacheManagerS3Sync:
         """Test that sync_from_s3 creates necessary directories."""
         monkeypatch.setenv("AWS_LAMBDA_FUNCTION_NAME", "test-function")
         monkeypatch.setenv("CACHE_BUCKET", "my-bucket")
-        monkeypatch.setenv("ENV", "dev")
 
         with patch("quickbase_extract.cache_manager.boto3.client") as mock_boto:
             mock_s3 = MagicMock()
@@ -281,328 +289,89 @@ class TestCacheManagerS3Sync:
             mock_paginator.paginate.return_value = [
                 {
                     "Contents": [
-                        {"Key": "dev/report_metadata/app/table_report.json"},
+                        {"Key": "project/dev/cache/report_metadata/app/table_report.json"},
                     ]
                 }
             ]
 
-            mgr = CacheManager(cache_root=temp_cache_dir)
+            mgr = CacheManager(
+                cache_root=temp_cache_dir,
+                s3_bucket="my-bucket",
+                s3_prefix="project/dev/cache",
+            )
             mgr.sync_from_s3()
 
             assert "Synced 1 files from S3" in caplog.text
 
 
-class TestEnsureCacheFreshness:
-    """Tests for ensure_cache_freshness orchestration function."""
+class TestCacheManagerCacheChecks:
+    """Tests for cache state checking methods."""
 
-    def test_cache_fresh_no_refresh_needed(self, temp_cache_dir, monkeypatch, caplog):
-        """Test that no refresh occurs when cache is fresh."""
-        monkeypatch.delenv("AWS_LAMBDA_FUNCTION_NAME", raising=False)
-        monkeypatch.setenv("ENV", "dev")
-        monkeypatch.setenv("QUICKBASE_CACHE_ROOT", str(temp_cache_dir))
+    def test_is_cache_empty_metadata(self, temp_cache_dir):
+        """Test is_cache_empty for metadata."""
+        mgr = CacheManager(cache_root=temp_cache_dir)
 
-        # Reset singleton to use new cache root
-        _reset_cache_manager()
+        # Empty initially
+        assert mgr.is_cache_empty("metadata") is True
 
-        # Create metadata cache files
+        # Create a metadata file
         metadata_dir = temp_cache_dir / "report_metadata" / "app"
         metadata_dir.mkdir(parents=True)
         (metadata_dir / "table_report.json").write_text("{}")
 
-        # Create data cache files
+        # Not empty now
+        assert mgr.is_cache_empty("metadata") is False
+
+    def test_is_cache_empty_data(self, temp_cache_dir):
+        """Test is_cache_empty for data."""
+        mgr = CacheManager(cache_root=temp_cache_dir)
+
+        # Empty initially
+        assert mgr.is_cache_empty("data") is True
+
+        # Create a data file
         data_dir = temp_cache_dir / "report_data" / "app"
         data_dir.mkdir(parents=True)
-        (data_dir / "table_report_data.json").write_text("{}")
+        (data_dir / "table_data.json").write_text("[]")
 
-        refresh_callback = MagicMock()
+        # Not empty now
+        assert mgr.is_cache_empty("data") is False
 
-        caplog.set_level(logging.DEBUG)
-        ensure_cache_freshness(
-            refresh_callback=refresh_callback,
-            metadata_stale_hours=168,
-            data_stale_hours=24,
-        )
+    def test_is_cache_empty_invalid_type(self, temp_cache_dir):
+        """Test is_cache_empty with invalid type."""
+        mgr = CacheManager(cache_root=temp_cache_dir)
 
-        # Refresh should not be called
-        refresh_callback.assert_not_called()
-        assert "Cache is fresh" in caplog.text
+        with pytest.raises(ValueError, match="cache_type must be"):
+            mgr.is_cache_empty("invalid")
 
-    def test_metadata_empty_triggers_refresh(self, temp_cache_dir, monkeypatch):
-        """Test that refresh is called when metadata cache is empty."""
-        monkeypatch.delenv("AWS_LAMBDA_FUNCTION_NAME", raising=False)
-        monkeypatch.setenv("ENV", "dev")
+    def test_get_cache_age_hours(self, temp_cache_dir):
+        """Test get_cache_age_hours returns correct age."""
+        mgr = CacheManager(cache_root=temp_cache_dir)
 
-        # Create only data cache (metadata empty)
-        data_dir = temp_cache_dir / "report_data" / "app"
-        data_dir.mkdir(parents=True)
-        (data_dir / "table_report_data.json").write_text("{}")
-
-        refresh_callback = MagicMock()
-
-        ensure_cache_freshness(
-            refresh_callback=refresh_callback,
-            metadata_stale_hours=168,
-            data_stale_hours=24,
-        )
-
-        # Refresh should be called
-        refresh_callback.assert_called_once()
-
-    def test_metadata_stale_triggers_refresh(self, temp_cache_dir, monkeypatch, caplog):
-        """Test that refresh is called when metadata is stale."""
-
-        monkeypatch.delenv("AWS_LAMBDA_FUNCTION_NAME", raising=False)
-        monkeypatch.setenv("ENV", "dev")
-
-        # Create old metadata files (10 days old)
+        # Create a metadata file
         metadata_dir = temp_cache_dir / "report_metadata" / "app"
         metadata_dir.mkdir(parents=True)
         metadata_file = metadata_dir / "table_report.json"
         metadata_file.write_text("{}")
 
-        # Set modification time to 10 days ago
-        old_time = time.time() - (10 * 24 * 3600)
-
-        os.utime(metadata_file, (old_time, old_time))
-
-        # Create fresh data cache
-        data_dir = temp_cache_dir / "report_data" / "app"
-        data_dir.mkdir(parents=True)
-        (data_dir / "table_report_data.json").write_text("{}")
-
-        refresh_callback = MagicMock()
-
-        ensure_cache_freshness(
-            refresh_callback=refresh_callback,
-            metadata_stale_hours=168,  # 7 days
-            data_stale_hours=24,
-        )
-
-        # Refresh should be called
-        refresh_callback.assert_called_once()
-
-    def test_data_empty_triggers_refresh(self, temp_cache_dir, monkeypatch):
-        """Test that refresh is called when data cache is empty."""
-        monkeypatch.delenv("AWS_LAMBDA_FUNCTION_NAME", raising=False)
-        monkeypatch.setenv("ENV", "dev")
-
-        # Create only metadata cache (data empty)
-        metadata_dir = temp_cache_dir / "report_metadata" / "app"
-        metadata_dir.mkdir(parents=True)
-        (metadata_dir / "table_report.json").write_text("{}")
-
-        refresh_callback = MagicMock()
-
-        ensure_cache_freshness(
-            refresh_callback=refresh_callback,
-            metadata_stale_hours=168,
-            data_stale_hours=24,
-        )
-
-        # Refresh should be called
-        refresh_callback.assert_called_once()
-
-    def test_data_stale_triggers_refresh(self, temp_cache_dir, monkeypatch, caplog):
-        """Test that refresh is called when data is stale."""
-
-        monkeypatch.delenv("AWS_LAMBDA_FUNCTION_NAME", raising=False)
-        monkeypatch.setenv("ENV", "dev")
-
-        # Create fresh metadata cache
-        metadata_dir = temp_cache_dir / "report_metadata" / "app"
-        metadata_dir.mkdir(parents=True)
-        (metadata_dir / "table_report.json").write_text("{}")
-
-        # Create old data files (2 days old)
-        data_dir = temp_cache_dir / "report_data" / "app"
-        data_dir.mkdir(parents=True)
-        data_file = data_dir / "table_report_data.json"
-        data_file.write_text("{}")
-
-        # Set modification time to 2 days ago
-        old_time = time.time() - (2 * 24 * 3600)
-
-        os.utime(data_file, (old_time, old_time))
-
-        refresh_callback = MagicMock()
-
-        ensure_cache_freshness(
-            refresh_callback=refresh_callback,
-            metadata_stale_hours=168,
-            data_stale_hours=24,  # 1 day
-        )
-
-        # Refresh should be called
-        refresh_callback.assert_called_once()
-
-    def test_force_refresh_skips_checks(self, temp_cache_dir, monkeypatch):
-        """Test that force=True always refreshes regardless of cache state."""
-        monkeypatch.delenv("AWS_LAMBDA_FUNCTION_NAME", raising=False)
-        monkeypatch.setenv("ENV", "dev")
-
-        # Create fresh cache (both metadata and data)
-        metadata_dir = temp_cache_dir / "report_metadata" / "app"
-        metadata_dir.mkdir(parents=True)
-        (metadata_dir / "table_report.json").write_text("{}")
-
-        data_dir = temp_cache_dir / "report_data" / "app"
-        data_dir.mkdir(parents=True)
-        (data_dir / "table_report_data.json").write_text("{}")
-
-        refresh_callback = MagicMock()
-
-        ensure_cache_freshness(
-            refresh_callback=refresh_callback,
-            metadata_stale_hours=168,
-            data_stale_hours=24,
-            force=True,  # Force refresh
-        )
-
-        # Refresh should be called even though cache is fresh
-        refresh_callback.assert_called_once()
-
-    def test_force_cache_refresh_env_var(self, temp_cache_dir, monkeypatch):
-        """Test that FORCE_CACHE_REFRESH env var forces refresh."""
-        monkeypatch.delenv("AWS_LAMBDA_FUNCTION_NAME", raising=False)
-        monkeypatch.setenv("ENV", "dev")
-        monkeypatch.setenv("FORCE_CACHE_REFRESH", "true")
-
-        # Create fresh cache
-        metadata_dir = temp_cache_dir / "report_metadata" / "app"
-        metadata_dir.mkdir(parents=True)
-        (metadata_dir / "table_report.json").write_text("{}")
-
-        data_dir = temp_cache_dir / "report_data" / "app"
-        data_dir.mkdir(parents=True)
-        (data_dir / "table_report_data.json").write_text("{}")
-
-        refresh_callback = MagicMock()
-
-        ensure_cache_freshness(
-            refresh_callback=refresh_callback,
-            metadata_stale_hours=168,
-            data_stale_hours=24,
-        )
-
-        # Refresh should be called due to env var
-        refresh_callback.assert_called_once()
-
-    def test_env_var_thresholds_override_defaults(self, temp_cache_dir, monkeypatch, caplog):
-        """Test that METADATA_STALE_HOURS and DATA_STALE_HOURS env vars are used."""
-
-        monkeypatch.delenv("AWS_LAMBDA_FUNCTION_NAME", raising=False)
-        monkeypatch.setenv("ENV", "dev")
-        monkeypatch.setenv("METADATA_STALE_HOURS", "1")  # 1 hour
-        monkeypatch.setenv("DATA_STALE_HOURS", "1")  # 1 hour
-
-        # Create metadata files (2 hours old)
-        metadata_dir = temp_cache_dir / "report_metadata" / "app"
-        metadata_dir.mkdir(parents=True)
-        metadata_file = metadata_dir / "table_report.json"
-        metadata_file.write_text("{}")
-
+        # Set modification time to 2 hours ago
         old_time = time.time() - (2 * 3600)
-
         os.utime(metadata_file, (old_time, old_time))
 
-        # Create data files (2 hours old)
-        data_dir = temp_cache_dir / "report_data" / "app"
-        data_dir.mkdir(parents=True)
-        data_file = data_dir / "table_report_data.json"
-        data_file.write_text("{}")
-        os.utime(data_file, (old_time, old_time))
+        age = mgr.get_cache_age_hours("metadata")
+        assert 1.9 < age < 2.1  # Allow small margin
 
-        refresh_callback = MagicMock()
+    def test_get_cache_age_hours_empty_cache(self, temp_cache_dir):
+        """Test get_cache_age_hours returns 0 for empty cache."""
+        mgr = CacheManager(cache_root=temp_cache_dir)
 
-        # Don't provide thresholds - should read from env vars
-        ensure_cache_freshness(refresh_callback=refresh_callback)
+        age = mgr.get_cache_age_hours("metadata")
+        assert age == 0
 
-        # Should refresh because both caches are older than 1 hour
-        refresh_callback.assert_called_once()
+    def test_get_cache_age_hours_invalid_type(self, temp_cache_dir):
+        """Test get_cache_age_hours with invalid type."""
+        mgr = CacheManager(cache_root=temp_cache_dir)
 
-    def test_refresh_failure_logged_not_raised(self, temp_cache_dir, monkeypatch, caplog):
-        """Test that refresh failure is logged but not re-raised."""
-        monkeypatch.delenv("AWS_LAMBDA_FUNCTION_NAME", raising=False)
-        monkeypatch.setenv("ENV", "dev")
-
-        # Create empty cache (will trigger refresh)
-        refresh_callback = MagicMock(side_effect=Exception("Refresh failed!"))
-
-        # Should not raise
-        ensure_cache_freshness(
-            refresh_callback=refresh_callback,
-            metadata_stale_hours=168,
-            data_stale_hours=24,
-        )
-
-        # But should log the error
-        assert "Cache refresh failed: Refresh failed!" in caplog.text
-
-    def test_non_callable_refresh_callback_raises_error(self, temp_cache_dir, monkeypatch):
-        """Test that non-callable refresh_callback raises ValueError."""
-        monkeypatch.delenv("AWS_LAMBDA_FUNCTION_NAME", raising=False)
-        monkeypatch.setenv("ENV", "dev")
-
-        with pytest.raises(ValueError, match="refresh_callback must be callable"):
-            ensure_cache_freshness(
-                refresh_callback="not_a_function",
-                metadata_stale_hours=168,
-                data_stale_hours=24,
-            )
-
-    def test_multiple_stale_caches_reported(self, temp_cache_dir, monkeypatch, caplog):
-        """Test that all stale cache reasons are included in log."""
-
-        monkeypatch.delenv("AWS_LAMBDA_FUNCTION_NAME", raising=False)
-        monkeypatch.setenv("ENV", "dev")
-
-        # Create old metadata (10 days old)
-        metadata_dir = temp_cache_dir / "report_metadata" / "app"
-        metadata_dir.mkdir(parents=True)
-        metadata_file = metadata_dir / "table_report.json"
-        metadata_file.write_text("{}")
-
-        old_time = time.time() - (10 * 24 * 3600)
-
-        os.utime(metadata_file, (old_time, old_time))
-
-        # Create old data (2 days old)
-        data_dir = temp_cache_dir / "report_data" / "app"
-        data_dir.mkdir(parents=True)
-        data_file = data_dir / "table_report_data.json"
-        data_file.write_text("{}")
-
-        old_time_data = time.time() - (2 * 24 * 3600)
-        os.utime(data_file, (old_time_data, old_time_data))
-
-        refresh_callback = MagicMock()
-
-        ensure_cache_freshness(
-            refresh_callback=refresh_callback,
-            metadata_stale_hours=168,  # 7 days
-            data_stale_hours=24,  # 1 day
-        )
-
-
-class TestGetCacheManagerSingleton:
-    """Tests for get_cache_manager singleton."""
-
-    def test_singleton_returns_same_instance(self, temp_cache_dir):
-        """Test that get_cache_manager returns the same instance."""
-        mgr1 = get_cache_manager(cache_root=temp_cache_dir)
-        mgr2 = get_cache_manager()
-
-        assert mgr1 is mgr2
-
-    def test_singleton_cache_root_ignored_after_first_call(self, temp_cache_dir):
-        """Test that cache_root is ignored on subsequent calls."""
-        mgr1 = get_cache_manager(cache_root=temp_cache_dir)
-
-        # Second call with different cache_root should return same instance
-        other_dir = temp_cache_dir / "other"
-        other_dir.mkdir()
-        mgr2 = get_cache_manager(cache_root=other_dir)
-
-        # Should be same instance with original cache_root
-        assert mgr1 is mgr2
-        assert mgr2.cache_root == temp_cache_dir
+        with pytest.raises(ValueError, match="cache_type must be"):
+            mgr.get_cache_age_hours("invalid")
+            mgr.get_cache_age_hours("invalid")
