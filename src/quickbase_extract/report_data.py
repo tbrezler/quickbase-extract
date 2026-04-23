@@ -43,18 +43,18 @@ def _flatten_and_relabel_records(records: list[dict], field_label: dict, fields:
 
 def get_data(
     client,
+    cache_manager: CacheManager,
+    report_description: str,
     report_metadata: dict,
-    report_desc: str,
-    cache_mgr: CacheManager,
     cache: bool = False,
 ) -> list[dict]:
     """Query a Quickbase table for data using cached report metadata.
 
     Args:
         client: Quickbase API client.
+        cache_manager: CacheManager instance for cache operations.
+        report_description: Unique description of a specific table report.
         report_metadata: Full metadata dict (from load_report_metadata_batch).
-        report_desc: Unique description of a specific table report.
-        cache_mgr: CacheManager instance for cache operations.
         cache: Whether to cache the retrieved data. Defaults to False.
 
     Returns:
@@ -65,12 +65,12 @@ def get_data(
         Exception: If Quickbase API query fails.
 
     Example:
-        >>> cache_mgr = CacheManager(cache_root=Path("my_project/dev/cache"))
-        >>> metadata = load_report_metadata_batch(configs, cache_mgr)
-        >>> data = get_data(client, metadata, "sales_open_deals", cache_mgr, cache=True)
+        >>> cache_manager = CacheManager(cache_root=Path("my_project/dev/cache"))
+        >>> metadata = load_report_metadata_batch(configs, cache_manager)
+        >>> data = get_data(client, metadata, "sales_open_deals", cache_manager, cache=True)
         >>> print(f"Found {len(data)} records")
     """
-    info = report_metadata[report_desc]
+    info = report_metadata[report_description]
 
     app_name = info["app_name"]
     table_name = info["table_name"]
@@ -91,20 +91,20 @@ def get_data(
 
     # Cache if requested
     if cache:
-        data_path = cache_mgr.get_data_path(app_name, table_name, report_name)
-        cache_mgr.write_file(data_path, json.dumps(final_list, indent=4))
-        logger.info(f"{report_desc} data cached ({len(final_list)} records)")
+        data_path = cache_manager.get_data_path(app_name, table_name, report_name)
+        cache_manager.write_file(data_path, json.dumps(final_list, indent=4))
+        logger.info(f"{report_description} data cached ({len(final_list)} records)")
     else:
-        logger.info(f"{report_desc} data fetched but not cached ({len(final_list)} records)")
+        logger.info(f"{report_description} data fetched but not cached ({len(final_list)} records)")
 
     return final_list
 
 
 def get_data_parallel(
     client,
-    report_metadata: dict,
+    cache_manager: CacheManager,
     report_descriptions: list[str],
-    cache_mgr: CacheManager,
+    report_metadata: dict,
     cache: bool = False,
     max_workers: int = 8,
 ) -> dict[str, list[dict]]:
@@ -116,9 +116,9 @@ def get_data_parallel(
 
     Args:
         client: Quickbase API client. Should be thread-safe for concurrent use.
+        cache_manager: CacheManager instance for cache operations.
         report_metadata: Full metadata dict (from load_report_metadata_batch).
         report_descriptions: List of report descriptions to fetch.
-        cache_mgr: CacheManager instance for cache operations.
         cache: Whether to cache retrieved data. Defaults to False.
         max_workers: Maximum number of concurrent threads. Default is 8.
             Adjust based on API rate limits and system resources.
@@ -132,10 +132,10 @@ def get_data_parallel(
             All pending tasks are cancelled when an error occurs.
 
     Example:
-        >>> cache_mgr = CacheManager(cache_root=Path("my_project/dev/cache"))
-        >>> metadata = load_report_metadata_batch(configs, cache_mgr)
+        >>> cache_manager = CacheManager(cache_root=Path("my_project/dev/cache"))
+        >>> metadata = load_report_metadata_batch(configs, cache_manager)
         >>> descriptions = ["sales_open_deals", "sales_contacts"]
-        >>> all_data = get_data_parallel(client, metadata, descriptions, cache_mgr, cache=True)
+        >>> all_data = get_data_parallel(client, metadata, descriptions, cache_manager, cache=True)
         >>> print(f"Fetched {len(all_data)} reports")
 
     Note:
@@ -158,24 +158,22 @@ def get_data_parallel(
             executor.submit(
                 get_data,
                 client,
-                report_metadata,
-                report_desc,
-                cache_mgr,
+                cache_manager=cache_manager,
+                report_metadata=report_metadata,
+                report_description=report_description,
                 cache=cache,
-            ): report_desc
-            for report_desc in report_descriptions
+            ): report_description
+            for report_description in report_descriptions
         }
 
         # Process as they complete, fail fast on first error
         for future in as_completed(future_to_report):
-            report_desc = future_to_report[future]
+            report_description = future_to_report[future]
             try:
                 data = future.result()  # Individual fetches are logged in get_data
-                results[report_desc] = data
+                results[report_description] = data
             except Exception as e:
-                # Cancel all remaining tasks
-                executor.shutdown(wait=False, cancel_futures=True)
-                logger.error(f"Failed to fetch {report_desc}: {e}")
+                logger.error(f"Failed to fetch {report_description}: {e}")
                 raise
 
     logger.info(f"Successfully completed parallel fetch for all {total_reports} reports")
@@ -184,15 +182,15 @@ def get_data_parallel(
 
 def load_data(
     report_metadata: dict,
-    report_desc: str,
-    cache_mgr: CacheManager,
+    cache_manager: CacheManager,
+    report_description: str,
 ) -> list[dict]:
     """Load cached data for a Quickbase report.
 
     Args:
         report_metadata: Full metadata dict (from load_report_metadata_batch).
+        cache_manager: CacheManager instance for cache operations.
         report_desc: Unique description of a specific table report.
-        cache_mgr: CacheManager instance for cache operations.
 
     Returns:
         List of dicts with field labels as keys.
@@ -202,28 +200,28 @@ def load_data(
         FileNotFoundError: If cached data does not exist.
 
     Example:
-        >>> cache_mgr = CacheManager(cache_root=Path("my_project/dev/cache"))
-        >>> metadata = load_report_metadata_batch(configs, cache_mgr)
-        >>> data = load_data(metadata, "sales_open_deals", cache_mgr)
+        >>> cache_manager = CacheManager(cache_root=Path("my_project/dev/cache"))
+        >>> metadata = load_report_metadata_batch(configs, cache_manager)
+        >>> data = load_data(metadata, "sales_open_deals", cache_manager)
         >>> print(f"Loaded {len(data)} records from cache")
     """
-    info = report_metadata[report_desc]
+    info = report_metadata[report_description]
     app_name = info["app_name"]
     table_name = info["table_name"]
     report_name = info["report_name"]
 
-    data_path = cache_mgr.get_data_path(app_name, table_name, report_name)
+    data_path = cache_manager.get_data_path(app_name, table_name, report_name)
 
     if not data_path.exists():
-        raise FileNotFoundError(f"Cached data not found for '{report_desc}'. Expected: {data_path}")
+        raise FileNotFoundError(f"Cached data not found for '{report_description}'. Expected: {data_path}")
 
-    return json.loads(cache_mgr.read_file(data_path))
+    return json.loads(cache_manager.read_file(data_path))
 
 
 def load_data_batch(
     report_metadata: dict,
+    cache_manager: CacheManager,
     report_descriptions: list[str],
-    cache_mgr: CacheManager,
 ) -> dict[str, list[dict]]:
     """Load cached data for multiple reports.
 
@@ -232,8 +230,8 @@ def load_data_batch(
 
     Args:
         report_metadata: Full metadata dict (from load_report_metadata_batch).
+        cache_manager: CacheManager instance for cache operations.
         report_descriptions: List of report descriptions to load.
-        cache_mgr: CacheManager instance for cache operations.
 
     Returns:
         Dict mapping report_description -> list of record dicts.
@@ -243,10 +241,10 @@ def load_data_batch(
         FileNotFoundError: If any cached data does not exist.
 
     Example:
-        >>> cache_mgr = CacheManager(cache_root=Path("my_project/dev/cache"))
-        >>> metadata = load_report_metadata_batch(configs, cache_mgr)
+        >>> cache_manager = CacheManager(cache_root=Path("my_project/dev/cache"))
+        >>> metadata = load_report_metadata_batch(configs, cache_manager)
         >>> descriptions = ["sales_open_deals", "sales_contacts"]
-        >>> all_data = load_data_batch(metadata, descriptions, cache_mgr)
+        >>> all_data = load_data_batch(metadata, descriptions, cache_manager)
         >>> print(f"Loaded {len(all_data)} reports from cache")
     """
     if not report_descriptions:
@@ -254,5 +252,5 @@ def load_data_batch(
 
     data = {}
     for report_desc in report_descriptions:
-        data[report_desc] = load_data(report_metadata, report_desc, cache_mgr)
+        data[report_desc] = load_data(report_metadata, report_desc, cache_manager)
     return data

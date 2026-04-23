@@ -36,12 +36,12 @@ class CacheManager:
 
     Example:
         >>> # Local development
-        >>> cache_mgr = CacheManager(
+        >>> cache_manager = CacheManager(
         ...     cache_root=Path("my_project/quickbase/dev/cache"),
         ... )
         >>>
         >>> # Lambda with S3
-        >>> cache_mgr = CacheManager(
+        >>> cache_manager = CacheManager(
         ...     cache_root=Path("/tmp/my_project/dev/cache"),
         ...     s3_bucket="mit-bio-quickbase",
         ...     s3_prefix="my_project/dev/cache",
@@ -92,7 +92,7 @@ class CacheManager:
             Path object for the metadata file.
 
         Example:
-            >>> cache_mgr.get_metadata_path("Sales Tracker", "Opportunities", "Open Deals")
+            >>> cache_manager.get_metadata_path("Sales Tracker", "Opportunities", "Open Deals")
             PosixPath('my_project/dev/cache/report_metadata/sales_tracker/opportunities_open_deals.json')
         """
         app_fmt = normalize_name(app_name)
@@ -115,7 +115,7 @@ class CacheManager:
             Path object for the data file.
 
         Example:
-            >>> cache_mgr.get_data_path("Sales Tracker", "Opportunities", "Open Deals")
+            >>> cache_manager.get_data_path("Sales Tracker", "Opportunities", "Open Deals")
             PosixPath('my_project/dev/cache/report_data/sales_tracker/opportunities_open_deals_data.json')
         """
         app_fmt = normalize_name(app_name)
@@ -137,7 +137,7 @@ class CacheManager:
             Exception: If S3 sync fails on Lambda (required for operation success).
 
         Example:
-            >>> cache_mgr.write_file(Path("metadata.json"), '{"key": "value"}')
+            >>> cache_manager.write_file(Path("metadata.json"), '{"key": "value"}')
         """
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(content)
@@ -158,7 +158,7 @@ class CacheManager:
             FileNotFoundError: If file does not exist.
 
         Example:
-            >>> content = cache_mgr.read_file(Path("metadata.json"))
+            >>> content = cache_manager.read_file(Path("metadata.json"))
         """
         if not file_path.exists():
             raise FileNotFoundError(f"Cache file not found: {file_path}")
@@ -248,7 +248,7 @@ class CacheManager:
             ValueError: If cache_type is not "metadata" or "data".
 
         Example:
-            >>> if cache_mgr.is_cache_empty("metadata"):
+            >>> if cache_manager.is_cache_empty("metadata"):
             ...     print("Metadata cache is empty")
         """
         if cache_type not in ("metadata", "data"):
@@ -285,7 +285,7 @@ class CacheManager:
             ValueError: If cache_type is not "metadata" or "data".
 
         Example:
-            >>> age = cache_mgr.get_cache_age_hours("metadata")
+            >>> age = cache_manager.get_cache_age_hours("metadata")
             >>> if age > 168:  # 7 days
             ...     print(f"Cache is {age} hours old, needs refresh")
         """

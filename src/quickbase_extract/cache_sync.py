@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 _CACHE_SYNCED = False
 
 
-def sync_from_s3_once(cache_mgr: CacheManager, force: bool = False) -> None:
+def sync_from_s3_once(cache_manager: CacheManager, force: bool = False) -> None:
     """Download cache from S3 to /tmp on Lambda cold start.
 
     Only syncs if cache hasn't been synced in this invocation.
@@ -25,7 +25,7 @@ def sync_from_s3_once(cache_mgr: CacheManager, force: bool = False) -> None:
     If not configured, does nothing (local caching only).
 
     Args:
-        cache_mgr: CacheManager instance for cache operations.
+        cache_manager: CacheManager instance for cache operations.
         force: If True, sync even if already synced in this invocation.
             Defaults to False. Can also be triggered via FORCE_CACHE_REFRESH
             environment variable.
@@ -40,20 +40,20 @@ def sync_from_s3_once(cache_mgr: CacheManager, force: bool = False) -> None:
 
     Example:
         >>> # In Lambda handler initialization
-        >>> cache_mgr = CacheManager(
+        >>> cache_manager = CacheManager(
         ...     cache_root=Path("/tmp/my_project/dev/cache"),
         ...     s3_bucket="mit-bio-quickbase",
         ...     s3_prefix="my_project/dev/cache",
         ... )
-        >>> sync_from_s3_once(cache_mgr)  # Syncs on cold start
-        >>> sync_from_s3_once(cache_mgr)  # No-op on same invocation
+        >>> sync_from_s3_once(cache_manager)  # Syncs on cold start
+        >>> sync_from_s3_once(cache_manager)  # No-op on same invocation
         >>>
         >>> # Force re-sync if needed (programmatically)
-        >>> sync_from_s3_once(cache_mgr, force=True)
+        >>> sync_from_s3_once(cache_manager, force=True)
         >>>
         >>> # Or set environment variable before invocation
         >>> # FORCE_CACHE_REFRESH=true (then call normally)
-        >>> sync_from_s3_once(cache_mgr)  # Will sync regardless of _CACHE_SYNCED flag
+        >>> sync_from_s3_once(cache_manager)  # Will sync regardless of _CACHE_SYNCED flag
     """
     global _CACHE_SYNCED
 
@@ -65,7 +65,7 @@ def sync_from_s3_once(cache_mgr: CacheManager, force: bool = False) -> None:
         logger.debug("Cache already synced in this invocation, skipping")
         return
 
-    cache_mgr.sync_from_s3()  # Handles Lambda detection internally
+    cache_manager.sync_from_s3()  # Handles Lambda detection internally
     _CACHE_SYNCED = True
     logger.info("Cache synced from S3")
 
