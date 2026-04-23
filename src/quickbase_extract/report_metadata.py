@@ -115,6 +115,7 @@ def get_report_metadata(
     # Build metadata structure with normalized names
     report_md = {
         "app_name": normalize_name(app_name),
+        "app_id": app_id,
         "table_name": normalize_name(table_name),
         "table_id": data["table_id"],
         "field_label": data["field_label"],
