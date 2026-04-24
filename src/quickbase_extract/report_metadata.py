@@ -9,16 +9,22 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from quickbase_extract.cache_manager import CacheManager
-from quickbase_extract.utils import find_report, normalize_name
+from quickbase_extract.config import ReportConfig
+from quickbase_extract.utils import normalize_name
 
 logger = logging.getLogger(__name__)
 
 
-def fetch_report_metadata_api(client, app_id: str, table_name: str, report_name: str) -> dict:
-    """Fetch report metadata from Quickbase API.
+def fetch_report_metadata_api(
+    client,
+    app_id: str,
+    table_name: str,
+    report_name: str,
+) -> dict:
+    """Fetch essential report metadata from Quickbase API.
 
-    Retrieves table ID, field mappings, and report configuration from Quickbase
-    for the specified report.
+    Retrieves table ID, field mappings, and report query configuration
+    (fields, filter, sort, grouping) from Quickbase.
 
     Args:
         client: Quickbase API client.
@@ -30,8 +36,10 @@ def fetch_report_metadata_api(client, app_id: str, table_name: str, report_name:
         Dict containing:
             - table_id: The table's Quickbase ID
             - field_label: Mapping of field labels to field IDs
-            - report_id: The report's Quickbase ID
-            - report: Full report object with query configuration
+            - fields: List of field IDs to query
+            - filter: Quickbase query filter string
+            - sort_by: Sort configuration (list of dicts)
+            - group_by: Grouping configuration (list of dicts)
 
     Raises:
         ValueError: If report_name is not found in the specified table.
@@ -51,18 +59,23 @@ def fetch_report_metadata_api(client, app_id: str, table_name: str, report_name:
 
     report = client.get_report(table_id, report_id=report_id)
 
+    # Extract only necessary query components
+    query = report.get("query", {})
+
     return {
         "table_id": table_id,
         "field_label": field_label,
-        "report_id": report_id,
-        "report": report,
+        "fields": query.get("fields", []),
+        "filter": query.get("filter", ""),
+        "sort_by": query.get("sortBy", []),
+        "group_by": query.get("groupBy", []),
     }
 
 
 def get_report_metadata(
     client,
     cache_manager: CacheManager,
-    report_config: dict,
+    report_config: ReportConfig,
     cache: bool = True,
 ) -> None:
     """Fetch and cache table/report metadata from Quickbase.
@@ -70,18 +83,14 @@ def get_report_metadata(
     Queries Quickbase for table ID, field mappings, report configuration,
     and filter settings, then saves the result as a JSON file in the cache.
 
-    The cached metadata includes normalized names, field mappings, report
-    configuration, and query filters that can be used for subsequent data
-    operations without additional API calls.
+    The cached metadata includes normalized names, field mappings, and query
+    configuration that can be used for subsequent data operations without
+    additional API calls.
 
     Args:
         client: Quickbase API client.
         cache_manager: CacheManager instance for cache operations.
-        report_config: Dict with keys:
-            - App: Application display name
-            - App ID: Quickbase application ID
-            - Table: Table name within the application
-            - Report: Report name within the table
+        report_config: ReportConfig identifying the report to fetch.
         cache: Whether to cache retrieved data. Defaults to True.
 
     Returns:
@@ -89,58 +98,60 @@ def get_report_metadata(
 
     Raises:
         ValueError: If report is not found in the specified table.
-        KeyError: If report_config is missing required keys.
         Exception: If any Quickbase API call fails.
 
     Example:
         >>> cache_manager = CacheManager(cache_root=Path("my_project/dev/cache"))
-        >>> config = {
-        ...     "App": "Sales Tracker",
-        ...     "App ID": "bq8xyx9z",
-        ...     "Table": "Opportunities",
-        ...     "Report": "Open Deals"
-        ... }
-        >>> get_report_metadata(qb_client, config, cache_manager)
+        >>> config = ReportConfig(
+        ...     app_id="bq8xyx9z",
+        ...     table_name="Accounts",
+        ...     report_name="Python"
+        ... )
+        >>> get_report_metadata(qb_client, cache_manager, config)
     """
-    app_name = report_config["App"]
-    app_id = report_config["App ID"]
-    table_name = report_config["Table"]
-    report_name = report_config["Report"]
-
-    logger.info(f"Fetching {app_name}: {table_name} - {report_name}")
+    logger.info(f"Fetching {report_config.app_id}: {report_config.table_name} - " f"{report_config.report_name}")
 
     # Fetch from API
-    data = fetch_report_metadata_api(client, app_id, table_name, report_name)
+    data = fetch_report_metadata_api(
+        client,
+        report_config.app_id,
+        report_config.table_name,
+        report_config.report_name,
+    )
 
     # Build metadata structure with normalized names
     report_md = {
-        "app_name": normalize_name(app_name),
-        "app_id": app_id,
-        "table_name": normalize_name(table_name),
+        "app_name": report_config.app_name,
+        "table_name": normalize_name(report_config.table_name),
+        "report_name": normalize_name(report_config.report_name),
         "table_id": data["table_id"],
         "field_label": data["field_label"],
-        "report_name": normalize_name(report_name),
-        "report_id": data["report_id"],
-        "report": data["report"],
-        "fields": data["report"]["query"]["fields"],
-        "filter": data["report"]["query"]["filter"],
+        "fields": data["fields"],
+        "filter": data["filter"],
+        "sort_by": data["sort_by"],
+        "group_by": data["group_by"],
     }
 
     # Cache if requested
     if cache:
         md_path = cache_manager.get_metadata_path(
-            report_md["app_name"], report_md["table_name"], report_md["report_name"]
+            report_md["app_name"],
+            report_md["table_name"],
+            report_md["report_name"],
         )
         cache_manager.write_file(md_path, json.dumps(report_md, indent=4))
-        logger.info(f"{app_name}/{table_name}_{report_name}.json cached")
+        logger.info(f"{report_config.app_id}/{report_config.table_name}_" f"{report_config.report_name}.json cached")
     else:
-        logger.info(f"{app_name}: {table_name} - {report_name} report metadata fetched but not cached")
+        logger.info(
+            f"{report_config.app_id}: {report_config.table_name} - "
+            f"{report_config.report_name} report metadata fetched but not cached"
+        )
 
 
 def get_report_metadata_parallel(
     client,
     cache_manager: CacheManager,
-    report_configs: list[dict],
+    report_configs: list[ReportConfig],
     cache: bool = True,
     max_workers: int = 8,
 ) -> None:
@@ -154,11 +165,7 @@ def get_report_metadata_parallel(
     Args:
         client: Quickbase API client. Should be thread-safe for concurrent use.
         cache_manager: CacheManager instance for cache operations.
-        report_configs: List of dicts, each containing:
-            - App: Application display name
-            - App ID: Quickbase application ID
-            - Table: Table name within the application
-            - Report: Report name within the table
+        report_configs: List of ReportConfig instances to fetch.
         cache: Whether to cache retrieved data. Defaults to True.
         max_workers: Maximum number of concurrent threads. Default is 8.
             Adjust based on API rate limits and system resources.
@@ -168,27 +175,16 @@ def get_report_metadata_parallel(
 
     Raises:
         ValueError: If any report is not found in its specified table.
-        KeyError: If any report_config is missing required keys.
         Exception: First exception encountered during parallel execution.
             All pending tasks are cancelled when an error occurs.
 
     Example:
         >>> cache_manager = CacheManager(cache_root=Path("my_project/dev/cache"))
         >>> configs = [
-        ...     {
-        ...         "App": "Sales Tracker",
-        ...         "App ID": "bq8xyx9z",
-        ...         "Table": "Opportunities",
-        ...         "Report": "Open Deals"
-        ...     },
-        ...     {
-        ...         "App": "Sales Tracker",
-        ...         "App ID": "bq8xyx9z",
-        ...         "Table": "Contacts",
-        ...         "Report": "Active Contacts"
-        ...     }
+        ...     ReportConfig("bq8xyx9z", "Accounts", "Python"),
+        ...     ReportConfig("bq8xyx9z", "Contacts", "Active"),
         ... ]
-        >>> get_report_metadata_parallel(qb_client, configs, cache_manager)
+        >>> get_report_metadata_parallel(qb_client, cache_manager, configs)
 
     Note:
         - Ensure the Quickbase client can handle concurrent requests
@@ -200,26 +196,32 @@ def get_report_metadata_parallel(
         return
 
     total_reports = len(report_configs)
-    logger.info(f"Starting parallel fetch for {total_reports} reports with {max_workers} workers")
+    logger.info(f"Starting parallel fetch for {total_reports} reports with {max_workers} " f"workers")
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all tasks
         future_to_config = {
             executor.submit(
-                get_report_metadata, client, cache_manager=cache_manager, report_config=report_config, cache=cache
-            ): f"{report_config['App']}:{report_config['Table']}:{report_config['Report']}"
-            for report_config in report_configs
+                get_report_metadata,
+                client,
+                cache_manager=cache_manager,
+                report_config=config,
+                cache=cache,
+            ): config
+            for config in report_configs
         }
 
         # Process as they complete, fail fast on first error
         for future in as_completed(future_to_config):
-            config_key = future_to_config[future]
+            config = future_to_config[future]
             try:
                 future.result()  # Individual fetches are logged in get_report_metadata
             except Exception as e:
                 # Cancel all remaining tasks
                 executor.shutdown(wait=False, cancel_futures=True)
-                logger.error(f"Failed to fetch metadata for {config_key}: {e}")
+                logger.error(
+                    f"Failed to fetch metadata for {config.app_id}/" f"{config.table_name}/{config.report_name}: {e}"
+                )
                 raise
 
     logger.info(f"Successfully completed parallel fetch for all {total_reports} reports")
@@ -227,33 +229,35 @@ def get_report_metadata_parallel(
 
 def load_report_metadata(
     cache_manager: CacheManager,
-    report_description: str,
-    report_configs: list[dict],
+    report_config: ReportConfig,
 ) -> dict:
     """Load cached report metadata from disk.
 
     Args:
         cache_manager: CacheManager instance for cache operations.
-        report_desc: Unique description of a specific table report.
-        report_configs: List of report configuration dicts (used to find matching report).
+        report_config: ReportConfig identifying the report to load.
 
     Returns:
-        Dict containing table ID, field mappings, report config, and filter.
+        Dict containing table ID, field mappings, query config, and filters.
 
     Raises:
-        ValueError: If no report matches the description.
         FileNotFoundError: If cached metadata does not exist.
-    """
-    report = find_report(report_configs, report_description)
 
-    # Must normalize names to match how they were saved
-    md_path = cache_manager.get_metadata_path(
-        normalize_name(report["App"]), normalize_name(report["Table"]), normalize_name(report["Report"])
-    )
+    Example:
+        >>> cache_manager = CacheManager(cache_root=Path("my_project/dev/cache"))
+        >>> config = ReportConfig("bq8xyx9z", "Accounts", "Python")
+        >>> metadata = load_report_metadata(cache_manager, config)
+    """
+    # Normalize names to match how they were saved
+    app_name = normalize_name(report_config.app_name)
+    table_name = normalize_name(report_config.table_name)
+    report_name = normalize_name(report_config.report_name)
+
+    md_path = cache_manager.get_metadata_path(app_name, table_name, report_name)
 
     if not md_path.exists():
         raise FileNotFoundError(
-            f"Report metadata not found for '{report_description}'. " f"Run refresh_all() first. Expected: {md_path}"
+            f"Report metadata not found for {report_config}. " f"Run get_report_metadata() first. Expected: {md_path}"
         )
 
     return json.loads(cache_manager.read_file(md_path))
@@ -261,40 +265,37 @@ def load_report_metadata(
 
 def load_report_metadata_batch(
     cache_manager: CacheManager,
-    report_configs: list[dict],
-) -> dict:
+    report_configs: list[ReportConfig],
+) -> dict[ReportConfig, dict]:
     """Load metadata for all reports from cache.
 
-    Sequentially loads cached metadata for each report configuration.
-    This is a simple wrapper around load_report_metadata for convenience.
+    Sequentially loads cached metadata for each report configuration and
+    returns a dict keyed by ReportConfig for easy lookup.
 
     Args:
         cache_manager: CacheManager instance for cache operations.
-        report_configs: List of report configuration dicts, each containing
-            a 'Description' key used as the lookup key.
+        report_configs: List of ReportConfig instances to load.
 
     Returns:
-        Dict mapping report descriptions to their metadata dicts.
+        Dict mapping ReportConfig -> metadata dict.
 
     Raises:
-        ValueError: If any report description is not found in report_configs.
         FileNotFoundError: If any report metadata is not cached.
 
     Example:
         >>> cache_manager = CacheManager(cache_root=Path("my_project/dev/cache"))
-        >>> configs = [{"Description": "sales_open_deals", ...}, ...]
-        >>> all_metadata = load_report_metadata_batch(configs, cache_manager)
-        >>> sales_metadata = all_metadata["sales_open_deals"]
+        >>> configs = [
+        ...     ReportConfig("bq8xyx9z", "Accounts", "Python"),
+        ...     ReportConfig("bq8xyx9z", "Contacts", "Active"),
+        ... ]
+        >>> all_metadata = load_report_metadata_batch(cache_manager, configs)
+        >>> python_metadata = all_metadata[configs[0]]
     """
     if not report_configs:
         return {}
 
-    metadata = {}
+    metadata: dict[ReportConfig, dict] = {}
     for config in report_configs:
-        report_description = config["Description"]
-        metadata[report_description] = load_report_metadata(
-            cache_manager=cache_manager,
-            report_description=report_description,
-            report_configs=report_configs,
-        )
+        metadata[config] = load_report_metadata(cache_manager, config)
+
     return metadata

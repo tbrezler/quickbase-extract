@@ -4,35 +4,12 @@ import json
 import logging
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import NamedTuple
 
 from quickbase_extract.api_handlers import handle_query
 from quickbase_extract.cache_manager import CacheManager
+from quickbase_extract.config import ReportConfig
 
 logger = logging.getLogger(__name__)
-
-
-class ReportConfig(NamedTuple):
-    """Minimal configuration identifying a Quickbase report.
-
-    Attributes:
-        app_id: Quickbase app ID (e.g., "bq8xyx9z").
-        table_name: Table name in Quickbase.
-        report_name: Report name within the table.
-
-    Example:
-        >>> config = ReportConfig(
-        ...     app_id="bq8xyx9z",
-        ...     table_name="Accounts",
-        ...     report_name="Python"
-        ... )
-        >>> # Use as dict key
-        >>> metadata = {config: {...}}
-    """
-
-    app_id: str
-    table_name: str
-    report_name: str
 
 
 def _replace_ask_placeholders(
@@ -134,11 +111,27 @@ def _flatten_and_relabel_records(records: list[dict], field_label: dict, fields:
     return final_list
 
 
+def _extract_report_names(metadata_info: dict) -> tuple[str, str, str]:
+    """Extract human-readable report names from metadata.
+
+    Args:
+        metadata_info: Metadata dict containing app_name, table_name, report_name.
+
+    Returns:
+        Tuple of (app_name, table_name, report_name).
+    """
+    return (
+        metadata_info["app_name"],
+        metadata_info["table_name"],
+        metadata_info["report_name"],
+    )
+
+
 def get_data(
     client,
     cache_manager: CacheManager,
     report_config: ReportConfig,
-    report_metadata: dict,
+    report_metadata: dict[ReportConfig, dict],
     cache: bool = False,
     ask_values: dict[str, str] | None = None,
 ) -> list[dict]:
@@ -148,8 +141,8 @@ def get_data(
         client: Quickbase API client.
         cache_manager: CacheManager instance for cache operations.
         report_config: ReportConfig identifying the report to fetch.
-        report_metadata: Full metadata dict (from load_report_metadata_batch).
-            Keyed by ReportConfig instances.
+        report_metadata: Dict mapping ReportConfig -> metadata dict
+            (from load_report_metadata_batch).
         cache: Whether to cache the retrieved data. Defaults to False.
         ask_values: Optional dict for "ask the user" filter placeholders.
             Keys are like "ask1", "ask2", values are the replacements.
@@ -166,7 +159,7 @@ def get_data(
     Example:
         >>> cache_manager = CacheManager(cache_root=Path("my_project/dev/cache"))
         >>> config = ReportConfig("bq8xyx9z", "Accounts", "Python")
-        >>> metadata = load_report_metadata_batch([config], cache_manager)
+        >>> metadata = load_report_metadata_batch(cache_manager, [config])
         >>> data = get_data(
         ...     client, cache_manager, config, metadata,
         ...     cache=True, ask_values={"ask1": "abc123"}
@@ -174,10 +167,7 @@ def get_data(
         >>> print(f"Found {len(data)} records")
     """
     info = report_metadata[report_config]
-
-    app_name = info["app_name"]
-    table_name = info["table_name"]
-    report_name = info["report_name"]
+    app_name, table_name, report_name = _extract_report_names(info)
 
     # Process filter with ask values if provided
     report_filter = info["filter"]
@@ -185,8 +175,9 @@ def get_data(
         original_filter = report_filter
         report_filter = _replace_ask_placeholders(report_filter, ask_values, report_config)
         logger.debug(
-            f"{report_config.app_id}/{report_config.table_name}/{report_config.report_name} "
-            f"filter modified: {original_filter} -> {report_filter}"
+            f"{report_config.app_id}/{report_config.table_name}/"
+            f"{report_config.report_name} filter modified: {original_filter} -> "
+            f"{report_filter}"
         )
 
     # Query Quickbase
@@ -195,7 +186,7 @@ def get_data(
         info["table_id"],
         select=info["fields"],
         where=report_filter,
-        sort_by=info["report"]["query"]["sortBy"],
+        sort_by=info["sort_by"],
     )
     data = query_data["data"]
 
@@ -207,13 +198,14 @@ def get_data(
         data_path = cache_manager.get_data_path(app_name, table_name, report_name)
         cache_manager.write_file(data_path, json.dumps(final_list, indent=4))
         logger.info(
-            f"{report_config.app_id}/{report_config.table_name}/{report_config.report_name} "
-            f"data cached ({len(final_list)} records)"
+            f"{report_config.app_id}/{report_config.table_name}/"
+            f"{report_config.report_name} data cached ({len(final_list)} records)"
         )
     else:
         logger.info(
-            f"{report_config.app_id}/{report_config.table_name}/{report_config.report_name} "
-            f"data fetched but not cached ({len(final_list)} records)"
+            f"{report_config.app_id}/{report_config.table_name}/"
+            f"{report_config.report_name} data fetched but not cached "
+            f"({len(final_list)} records)"
         )
 
     return final_list
@@ -321,75 +313,80 @@ def get_data_parallel(
 
 def load_data(
     cache_manager: CacheManager,
-    report_description: str,
-    report_metadata: dict,
+    report_config: ReportConfig,
+    report_metadata: dict[ReportConfig, dict],
 ) -> list[dict]:
     """Load cached data for a Quickbase report.
 
     Args:
-    cache_manager: CacheManager instance for cache operations.
-    report_desc: Unique description of a specific table report.
-    report_metadata: Full metadata dict (from load_report_metadata_batch).
+        cache_manager: CacheManager instance for cache operations.
+        report_config: ReportConfig identifying the report to load.
+        report_metadata: Dict mapping ReportConfig -> metadata dict
+            (from load_report_metadata_batch).
 
     Returns:
         List of dicts with field labels as keys.
 
     Raises:
-        KeyError: If report_desc not found in report_metadata.
+        KeyError: If report_config not found in report_metadata.
         FileNotFoundError: If cached data does not exist.
 
     Example:
         >>> cache_manager = CacheManager(cache_root=Path("my_project/dev/cache"))
-        >>> metadata = load_report_metadata_batch(configs, cache_manager)
-        >>> data = load_data(metadata, "sales_open_deals", cache_manager)
+        >>> config = ReportConfig("bq8xyx9z", "Accounts", "Python")
+        >>> metadata = load_report_metadata_batch(cache_manager, [config])
+        >>> data = load_data(cache_manager, config, metadata)
         >>> print(f"Loaded {len(data)} records from cache")
     """
-    info = report_metadata[report_description]
-    app_name = info["app_name"]
-    table_name = info["table_name"]
-    report_name = info["report_name"]
+    info = report_metadata[report_config]
+    app_name, table_name, report_name = _extract_report_names(info)
 
     data_path = cache_manager.get_data_path(app_name, table_name, report_name)
 
     if not data_path.exists():
-        raise FileNotFoundError(f"Cached data not found for '{report_description}'. Expected: {data_path}")
+        raise FileNotFoundError(f"Cached data not found for {report_config}. Expected: {data_path}")
 
     return json.loads(cache_manager.read_file(data_path))
 
 
 def load_data_batch(
     cache_manager: CacheManager,
-    report_descriptions: list[str],
-    report_metadata: dict,
-) -> dict[str, list[dict]]:
+    report_configs: list[ReportConfig],
+    report_metadata: dict[ReportConfig, dict],
+) -> dict[ReportConfig, list[dict]]:
     """Load cached data for multiple reports.
 
-    Sequentially loads cached data for each report description.
+    Sequentially loads cached data for each report configuration.
     This is a batch wrapper around load_data for convenience.
 
     Args:
         cache_manager: CacheManager instance for cache operations.
-        report_descriptions: List of report descriptions to load.
-        report_metadata: Full metadata dict (from load_report_metadata_batch).
+        report_configs: List of ReportConfig instances to load.
+        report_metadata: Dict mapping ReportConfig -> metadata dict
+            (from load_report_metadata_batch).
 
     Returns:
-        Dict mapping report_description -> list of record dicts.
+        Dict mapping ReportConfig -> list of record dicts.
 
     Raises:
-        KeyError: If any report_desc not found in report_metadata.
+        KeyError: If any report_config not found in report_metadata.
         FileNotFoundError: If any cached data does not exist.
 
     Example:
         >>> cache_manager = CacheManager(cache_root=Path("my_project/dev/cache"))
-        >>> metadata = load_report_metadata_batch(configs, cache_manager)
-        >>> descriptions = ["sales_open_deals", "sales_contacts"]
-        >>> all_data = load_data_batch(metadata, descriptions, cache_manager)
+        >>> configs = [
+        ...     ReportConfig("bq8xyx9z", "Accounts", "Python"),
+        ...     ReportConfig("bq8xyx9z", "Contacts", "Active"),
+        ... ]
+        >>> metadata = load_report_metadata_batch(cache_manager, configs)
+        >>> all_data = load_data_batch(cache_manager, configs, metadata)
         >>> print(f"Loaded {len(all_data)} reports from cache")
     """
-    if not report_descriptions:
+    if not report_configs:
         return {}
 
-    data = {}
-    for report_desc in report_descriptions:
-        data[report_desc] = load_data(report_metadata, report_desc, cache_manager)
+    data: dict[ReportConfig, list[dict]] = {}
+    for report_config in report_configs:
+        data[report_config] = load_data(cache_manager, report_config, report_metadata)
+
     return data
