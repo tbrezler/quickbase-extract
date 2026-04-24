@@ -5,6 +5,71 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+### Added
+
+- `ReportConfig` NamedTuple in new `config.py` module for type-safe report identification
+- `_extract_report_names()` helper function in `report_data.py` to reduce code duplication
+- `_replace_ask_placeholders()` function for dynamic filter manipulation with runtime ask_values
+- Support for per-report ask_values in `get_data_parallel()` for dynamic filtering
+- `cache_all_data` parameter in `ensure_cache_freshness()` to cache all reports regardless of subset
+- `report_configs_all` and `report_configs_to_cache` parameters to separate metadata refresh from data caching
+- Comprehensive documentation on organizing report configs with dict-based strategies (Option 2)
+- Multiple organization strategies for report configs (by app, by function, by environment, by tags)
+- Environment-specific caching strategies (dev/staging/prod with different subsets)
+- Performance optimization guide with benchmarking examples
+- Advanced usage patterns for dynamic filters, batch processing, and data pipelines
+
+### Changed
+
+- **BREAKING: All functions now require `ReportConfig` instances instead of dicts**
+  - `get_report_metadata(client, cache_manager, report_config)` - parameter order changed, now takes `ReportConfig`
+  - `get_data(client, cache_manager, report_config, report_metadata)` - now uses `ReportConfig`
+  - `load_data(cache_manager, report_config, report_metadata)` - now uses `ReportConfig`
+  - `get_data_parallel(client, cache_manager, report_configs, report_metadata)` - now takes list of `ReportConfig`
+  - `load_data_batch(cache_manager, report_configs, report_metadata)` - now takes list of `ReportConfig`
+
+- **BREAKING: Metadata structure simplified**
+  - Removed nested `"report"` object from cached metadata
+  - Moved `sort_by` and `group_by` to top level (previously `report.query.sortBy`, etc.)
+  - Metadata now: `{"table_id", "field_label", "fields", "filter", "sort_by", "group_by", "app_name", "table_name", "report_name"}`
+
+- **BREAKING: `ensure_cache_freshness()` signature changed**
+  - `report_configs_all` - all reports for metadata refresh (was `report_configs`)
+  - `report_configs_to_cache` - optional subset for data caching (was `report_descriptions`)
+  - Added `cache_all_data` parameter for environment-specific caching
+  - Removed `report_descriptions` (now use `report_configs_to_cache`)
+
+- **BREAKING: Metadata is now keyed by `ReportConfig` instead of description string**
+  - Old: `metadata["customers"]` (string key)
+  - New: `metadata[ReportConfig(...)]` (NamedTuple key)
+
+- `fetch_report_metadata_api()` now returns only essential fields (no full `report` object)
+  - Returns: `{"table_id", "field_label", "fields", "filter", "sort_by", "group_by"}`
+
+- `ensure_cache_freshness()` now checks metadata and data independently
+  - Only refreshes caches that are stale (more efficient)
+  - Metadata refresh can complete even if data refresh fails
+
+- Improved error handling in `_replace_ask_placeholders()` with clearer validation messages
+
+- Updated all examples and documentation to use `ReportConfig`
+
+- Lambda handler examples now show proper cache management with `sync_from_s3_once()`
+
+### Removed
+
+- `find_report()` function from utils - no longer needed with `ReportConfig`
+- Dict-based report config format - all configs must use `ReportConfig` NamedTuple
+- Nested `report` object from metadata - simplified structure
+- `report_descriptions` parameter from `ensure_cache_freshness()` - use `report_configs_to_cache`
+
+### Fixed
+
+- Cache freshness checks now work independently for metadata vs data
+- Ask placeholder validation now catches both missing and unused values
+- Type hints now correctly reflect `ReportConfig` usage throughout
+- Metadata dict keys are now consistent (ReportConfig instances)
+
 ## [0.2.0] - 2026-04-22
 
 ### Added

@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock
 
 import pytest
+from quickbase_extract.config import ReportConfig
 
 
 @pytest.fixture
@@ -42,6 +43,7 @@ def mock_qb_api():
         "query": {
             "fields": [3, 6, 7, 8],
             "sortBy": [{"fieldId": 6, "order": "ASC"}],
+            "groupBy": [],
             "filter": "{8.EX.'Active'}",
         },
     }
@@ -81,32 +83,32 @@ def mock_qb_api():
 
 @pytest.fixture
 def sample_report_configs():
-    """Sample report configurations."""
+    """Sample report configurations as ReportConfig instances."""
     return [
-        {
-            "Description": "Test Report",
-            "App": "Test App",
-            "App ID": "appXYZ123",
-            "Table": "Test Table",
-            "Report": "Python",
-        },
-        {
-            "Description": "Another Report",
-            "App": "Test App",
-            "App ID": "appXYZ123",
-            "Table": "Another Table",
-            "Report": "Python",
-        },
+        ReportConfig(
+            app_id="appXYZ123",
+            app_name="test_app",
+            table_name="Test Table",
+            report_name="Python",
+        ),
+        ReportConfig(
+            app_id="appXYZ123",
+            app_name="test_app",
+            table_name="Another Table",
+            report_name="Python",
+        ),
     ]
 
 
 @pytest.fixture
-def sample_report_metadata():
-    """Sample report metadata structure."""
+def sample_report_metadata(sample_report_configs):
+    """Sample report metadata structure keyed by ReportConfig."""
+    config1, config2 = sample_report_configs
     return {
-        "Test Report": {
+        config1: {
             "app_name": "test_app",
             "table_name": "test_table",
+            "report_name": "python",
             "table_id": "tblXYZ123",
             "field_label": {
                 "Record ID#": "3",
@@ -114,20 +116,27 @@ def sample_report_metadata():
                 "Email": "7",
                 "Status": "8",
             },
+            "fields": [3, 6, 7, 8],
+            "filter": "{8.EX.'Active'}",
+            "sort_by": [{"fieldId": 6, "order": "ASC"}],
+            "group_by": [],
+        },
+        config2: {
+            "app_name": "test_app",
+            "table_name": "another_table",
             "report_name": "python",
-            "report_id": "rptABC123",
-            "report": {
-                "id": "rptABC123",
-                "name": "Python",
-                "query": {
-                    "fields": [3, 6, 7, 8],
-                    "sortBy": [{"fieldId": 6, "order": "ASC"}],
-                    "filter": "{8.EX.'Active'}",
-                },
+            "table_id": "tblXYZ123",
+            "field_label": {
+                "Record ID#": "3",
+                "Name": "6",
+                "Email": "7",
+                "Status": "8",
             },
             "fields": [3, 6, 7, 8],
             "filter": "{8.EX.'Active'}",
-        }
+            "sort_by": [{"fieldId": 6, "order": "ASC"}],
+            "group_by": [],
+        },
     }
 
 

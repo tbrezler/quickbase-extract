@@ -6,9 +6,9 @@ metadata and data caches. Ensures caches are up-to-date before processing.
 
 import logging
 import os
-from typing import Any
 
 from quickbase_extract.cache_manager import DEFAULT_DATA_STALE_HOURS, DEFAULT_METADATA_STALE_HOURS, CacheManager
+from quickbase_extract.config import ReportConfig
 from quickbase_extract.report_data import get_data_parallel
 from quickbase_extract.report_metadata import get_report_metadata_parallel, load_report_metadata_batch
 
@@ -18,10 +18,11 @@ logger = logging.getLogger(__name__)
 def ensure_cache_freshness(
     client,
     cache_manager: CacheManager,
-    report_configs: list[dict[str, Any]],
-    report_descriptions: list | None = None,
+    report_configs_all: list[ReportConfig],
+    report_configs_to_cache: list[ReportConfig] | None = None,
     metadata_stale_hours: float | None = None,
     data_stale_hours: float | None = None,
+    cache_all_data: bool = False,
     force_metadata: bool = False,
     force_data: bool = False,
     force_all: bool = False,
@@ -39,16 +40,19 @@ def ensure_cache_freshness(
     Args:
         client: Quickbase API client (required for refresh)
         cache_manager: CacheManager instance for cache operations
-        report_configs: List of report configuration dicts
-        report_descriptions: List of report descriptions. If provided, enables
-            data caching and freshness checks. If None, data caching is disabled
-            and data cache checks are skipped.
+        report_configs_all: List of all ReportConfig instances to refresh
+            metadata for
+        report_configs_to_cache: Optional subset of ReportConfig instances to
+            cache data for. If cache_all_data is True, this parameter is ignored
+            and all reports' data is cached instead.
         metadata_stale_hours: Threshold (hours) for metadata staleness.
             If not provided, reads from METADATA_STALE_HOURS env var,
             falls back to DEFAULT_METADATA_STALE_HOURS (168 hours / 7 days).
         data_stale_hours: Threshold (hours) for data staleness.
             If not provided, reads from DATA_STALE_HOURS env var,
             falls back to DEFAULT_DATA_STALE_HOURS (24 hours).
+        cache_all_data: If True, caches data for all reports (ignores
+            report_configs_to_cache). Defaults to False.
         force_all: If True, refreshes both metadata and data immediately,
             overriding all other flags and staleness checks.
         force_metadata: If True (and force_all is False), refreshes metadata
@@ -64,19 +68,25 @@ def ensure_cache_freshness(
 
     Example:
         >>> from quickbase_extract import ensure_cache_freshness, get_qb_client, CacheManager
-        >>> from config.reports import get_reports
+        >>> from config.reports import get_all_reports, get_reports_to_cache
         >>>
         >>> client = get_qb_client(realm="...", user_token="...")
         >>> cache_manager = CacheManager(cache_root=Path("my_project/dev/cache"))
-        >>> report_configs = get_reports()
-        >>> report_descriptions = [...]  # populated if caching data
         >>>
+        >>> # Cache only specific reports' data
         >>> ensure_cache_freshness(
         ...     client=client,
-        ...     report_configs=report_configs,
         ...     cache_manager=cache_manager,
-        ...     report_descriptions=report_descriptions,
-        ...     metadata_stale_hours=720,  # 30 days
+        ...     report_configs_all=get_all_reports(),
+        ...     report_configs_to_cache=get_reports_to_cache(),
+        ... )
+        >>>
+        >>> # Cache all reports' data
+        >>> ensure_cache_freshness(
+        ...     client=client,
+        ...     cache_manager=cache_manager,
+        ...     report_configs_all=get_all_reports(),
+        ...     cache_all_data=True,
         ... )
     """
 
@@ -90,11 +100,17 @@ def ensure_cache_freshness(
     force_all_env = os.environ.get("FORCE_ALL_CACHE_REFRESH", "").lower() == "true"
     should_force = force_all or force_all_env
 
+    # Determine which reports to cache data for
+    if cache_all_data:
+        reports_for_data_cache = report_configs_all
+    else:
+        reports_for_data_cache = report_configs_to_cache
+
     # Determine if data caching is enabled
-    data_caching_enabled = report_descriptions is not None
+    data_caching_enabled = reports_for_data_cache is not None
 
     if not data_caching_enabled:
-        logger.debug("Data caching is disabled (report_descriptions not provided)")
+        logger.debug("Data caching is disabled")
 
     # Check metadata cache
     metadata_empty = cache_manager.is_cache_empty("metadata")
@@ -122,7 +138,7 @@ def ensure_cache_freshness(
 
     # Early exit if nothing needs refreshing
     if not metadata_needs_refresh and not data_needs_refresh:
-        log_msg = f"Cache is fresh: metadata {metadata_age}h (threshold: {metadata_stale_hours}h)"
+        log_msg = f"Cache is fresh: metadata {metadata_age}h " f"(threshold: {metadata_stale_hours}h)"
         if data_caching_enabled:
             log_msg += f", data {data_age}h (threshold: {data_stale_hours}h)"
         logger.debug(log_msg)
@@ -141,7 +157,12 @@ def ensure_cache_freshness(
         logger.warning(f"Metadata cache refresh needed: {'; '.join(reasons)}")
 
         try:
-            get_report_metadata_parallel(client, cache_manager=cache_manager, report_configs=report_configs, cache=True)
+            get_report_metadata_parallel(
+                client,
+                cache_manager=cache_manager,
+                report_configs=report_configs_all,
+                cache=True,
+            )
             logger.info("Metadata cache refresh completed successfully")
         except Exception as e:
             logger.error(f"Metadata cache refresh failed: {e}", exc_info=True)
@@ -161,14 +182,14 @@ def ensure_cache_freshness(
 
         try:
             # Load metadata (either just refreshed or already cached)
-            metadata = load_report_metadata_batch(report_configs, cache_manager)
+            metadata = load_report_metadata_batch(cache_manager, reports_for_data_cache)
 
-            # Fetch and cache all data
+            # Fetch and cache data for selected reports
             get_data_parallel(
                 client,
                 cache_manager=cache_manager,
+                report_configs=reports_for_data_cache,
                 report_metadata=metadata,
-                report_descriptions=report_descriptions,
                 cache=True,
             )
             logger.info("Data cache refresh completed successfully")

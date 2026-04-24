@@ -49,14 +49,20 @@ def fetch_report_metadata_api(
     field_label = client.get_field_label_id_map(table_id)
     reports = client.get_reports(table_id)
 
-    report_id = next((r["id"] for r in reports if r["name"] == report_name), None)
+    # Find matching report(s)
+    report_matches = [r for r in reports if r["name"] == report_name]
 
-    if not report_id:
+    if not report_matches:
         available = [r["name"] for r in reports]
         raise ValueError(
             f"Report '{report_name}' not found in table '{table_name}'. " f"Available reports: {available}"
         )
 
+    # Warn if multiple matches (unlikely but possible)
+    if len(report_matches) > 1:
+        logger.warning(f"Multiple reports match '{report_name}' in table '{table_name}', " f"using first match")
+
+    report_id = report_matches[0]["id"]
     report = client.get_report(table_id, report_id=report_id)
 
     # Extract only necessary query components

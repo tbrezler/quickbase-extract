@@ -50,7 +50,7 @@ from quickbase_extract.report_metadata import (
 )
 
 # Utilities
-from quickbase_extract.utils import find_report, normalize_name
+from quickbase_extract.utils import normalize_name
 
 __version__ = "0.2.0"
 
@@ -81,6 +81,5 @@ __all__ = [
     "load_data",
     "load_data_batch",
     # Utilities
-    "find_report",
     "normalize_name",
 ]
