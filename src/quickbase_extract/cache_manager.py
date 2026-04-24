@@ -306,3 +306,22 @@ class CacheManager:
         age_hours = (time.time() - oldest_mtime) / 3600
 
         return round(age_hours, 1)
+
+    def has_report_metadata(self, app_name: str, table_name: str, report_name: str) -> bool:
+        """Check if metadata for a specific report exists in cache.
+
+        Args:
+            app_name: Application name.
+            table_name: Table name.
+            report_name: Report name.
+
+        Returns:
+            True if report metadata file exists, False otherwise.
+        """
+        path = self.get_metadata_path(app_name, table_name, report_name)
+        return path.exists()
+
+    def has_report_data(self, app_name: str, table_name: str, report_name: str) -> bool:
+        """Check if data for a specific report exists in cache."""
+        path = self.get_data_path(app_name, table_name, report_name)
+        return path.exists()

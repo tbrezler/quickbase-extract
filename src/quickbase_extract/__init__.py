@@ -38,6 +38,9 @@ from quickbase_extract.cache_orchestration import ensure_cache_freshness
 # Cache sync
 from quickbase_extract.cache_sync import is_cache_synced, sync_from_s3_once
 
+# Config
+from quickbase_extract.config import ReportConfig
+
 # Report data retrieval
 from quickbase_extract.report_data import get_data, get_data_parallel, load_data, load_data_batch
 
@@ -65,6 +68,8 @@ __all__ = [
     "ensure_cache_freshness",
     "sync_from_s3_once",
     "is_cache_synced",
+    # Config
+    "ReportConfig",
     # API operations
     "QuickbaseOperationError",
     "handle_delete",

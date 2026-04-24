@@ -85,7 +85,7 @@ def _flatten_and_relabel_records(records: list[dict], field_label: dict, fields:
 
     Args:
         records: List of records from Quickbase API (nested format).
-        field_label: Dict mapping field labels to IDs.
+        field_label: Dict mapping field labels to IDs (as integers).
         fields: List of field IDs in desired order.
 
     Returns:
@@ -93,18 +93,17 @@ def _flatten_and_relabel_records(records: list[dict], field_label: dict, fields:
     """
     # Build reverse mapping: field ID -> label
     id_to_label = {v: k for k, v in field_label.items()}
-    field_order = [str(f) for f in fields]
 
     final_list = []
     for record in records:
         # Flatten: {field_id: {value: actual}} -> {field_id: actual}
-        flat = {fid: val["value"] for fid, val in record.items()}
+        flat = {int(fid): val["value"] for fid, val in record.items()}
 
         # Re-order to match report field order
-        ordered = {fid: flat[fid] for fid in field_order if fid in flat}
+        ordered = {fid: flat[fid] for fid in fields if fid in flat}
 
         # Swap field IDs with labels
-        labeled = {id_to_label[fid]: val for fid, val in ordered.items() if fid in id_to_label}
+        labeled = {id_to_label[fid]: val for fid, val in ordered.items()}
 
         final_list.append(labeled)
 
@@ -229,7 +228,7 @@ def get_data_parallel(
     Args:
         client: Quickbase API client. Should be thread-safe for concurrent use.
         cache_manager: CacheManager instance for cache operations.
-        report_configs: List of ReportConfig instances to fetch.
+        report_config: List of ReportConfig instances to fetch.
         report_metadata: Full metadata dict (from load_report_metadata_batch).
             Keyed by ReportConfig instances.
         cache: Whether to cache retrieved data. Defaults to False.
@@ -253,14 +252,14 @@ def get_data_parallel(
 
     Example:
         >>> cache_manager = CacheManager(cache_root=Path("my_project/dev/cache"))
-        >>> configs = [
+        >>> config = [
         ...     ReportConfig("bq8xyx9z", "Accounts", "Python"),
         ...     ReportConfig("bq9yza0a", "Contacts", "Active"),
         ... ]
-        >>> metadata = load_report_metadata_batch(configs, cache_manager)
-        >>> ask_vals = {configs[0]: {"ask1": "abc123"}}
+        >>> metadata = load_report_metadata_batch(config, cache_manager)
+        >>> ask_vals = {config[0]: {"ask1": "abc123"}}
         >>> all_data = get_data_parallel(
-        ...     client, cache_manager, configs, metadata,
+        ...     client, cache_manager, config, metadata,
         ...     cache=True, ask_values=ask_vals
         ... )
         >>> print(f"Fetched {len(all_data)} reports")
@@ -271,7 +270,7 @@ def get_data_parallel(
         - All tasks are cancelled on first failure (fail-fast behavior)
     """
     if not report_configs:
-        logger.warning("No report configs provided, nothing to fetch")
+        logger.warning("No report config provided, nothing to fetch")
         return {}
 
     total_reports = len(report_configs)
@@ -287,24 +286,21 @@ def get_data_parallel(
                 client,
                 cache_manager=cache_manager,
                 report_metadata=report_metadata,
-                report_config=report_config,
+                report_config=config,
                 cache=cache,
-                ask_values=ask_values.get(report_config) if ask_values else None,
-            ): report_config
-            for report_config in report_configs
+                ask_values=ask_values.get(config) if ask_values else None,
+            ): config
+            for config in report_configs
         }
 
         # Process as they complete, fail fast on first error
         for future in as_completed(future_to_config):
-            report_config = future_to_config[future]
+            config = future_to_config[future]
             try:
                 data = future.result()  # Individual fetches are logged in get_data
-                results[report_config] = data
+                results[config] = data
             except Exception as e:
-                logger.error(
-                    f"Failed to fetch {report_config.app_id}/{report_config.table_name}/"
-                    f"{report_config.report_name}: {e}"
-                )
+                logger.error(f"Failed to fetch {config.app_id}/{config.table_name}/" f"{config.report_name}: {e}")
                 raise
 
     logger.info(f"Successfully completed parallel fetch for all {total_reports} reports")
@@ -361,7 +357,7 @@ def load_data_batch(
 
     Args:
         cache_manager: CacheManager instance for cache operations.
-        report_configs: List of ReportConfig instances to load.
+        report_config: List of ReportConfig instances to load.
         report_metadata: Dict mapping ReportConfig -> metadata dict
             (from load_report_metadata_batch).
 
@@ -374,12 +370,12 @@ def load_data_batch(
 
     Example:
         >>> cache_manager = CacheManager(cache_root=Path("my_project/dev/cache"))
-        >>> configs = [
+        >>> config = [
         ...     ReportConfig("bq8xyx9z", "Accounts", "Python"),
         ...     ReportConfig("bq8xyx9z", "Contacts", "Active"),
         ... ]
-        >>> metadata = load_report_metadata_batch(cache_manager, configs)
-        >>> all_data = load_data_batch(cache_manager, configs, metadata)
+        >>> metadata = load_report_metadata_batch(cache_manager, config)
+        >>> all_data = load_data_batch(cache_manager, config, metadata)
         >>> print(f"Loaded {len(all_data)} reports from cache")
     """
     if not report_configs:

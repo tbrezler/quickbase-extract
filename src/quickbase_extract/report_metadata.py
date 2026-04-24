@@ -67,10 +67,14 @@ def fetch_report_metadata_api(
 
     # Extract only necessary query components
     query = report.get("query", {})
+    fields = query.get("fields", [])
+
+    # Filter field_label to only include fields used in this report
+    filtered_field_label = {name: int(fid) for name, fid in field_label.items() if int(fid) in fields}
 
     return {
         "table_id": table_id,
-        "field_label": field_label,
+        "field_label": filtered_field_label,
         "fields": query.get("fields", []),
         "filter": query.get("filter", ""),
         "sort_by": query.get("sortBy", []),
@@ -171,7 +175,7 @@ def get_report_metadata_parallel(
     Args:
         client: Quickbase API client. Should be thread-safe for concurrent use.
         cache_manager: CacheManager instance for cache operations.
-        report_configs: List of ReportConfig instances to fetch.
+        report_config: List of ReportConfig instances to fetch.
         cache: Whether to cache retrieved data. Defaults to True.
         max_workers: Maximum number of concurrent threads. Default is 8.
             Adjust based on API rate limits and system resources.
@@ -186,11 +190,11 @@ def get_report_metadata_parallel(
 
     Example:
         >>> cache_manager = CacheManager(cache_root=Path("my_project/dev/cache"))
-        >>> configs = [
+        >>> config = [
         ...     ReportConfig("bq8xyx9z", "Accounts", "Python"),
         ...     ReportConfig("bq8xyx9z", "Contacts", "Active"),
         ... ]
-        >>> get_report_metadata_parallel(qb_client, cache_manager, configs)
+        >>> get_report_metadata_parallel(qb_client, cache_manager, config)
 
     Note:
         - Ensure the Quickbase client can handle concurrent requests
@@ -198,7 +202,7 @@ def get_report_metadata_parallel(
         - All tasks are cancelled on first failure (fail-fast behavior)
     """
     if not report_configs:
-        logger.warning("No report configs provided, nothing to fetch")
+        logger.warning("No report config provided, nothing to fetch")
         return
 
     total_reports = len(report_configs)
@@ -280,7 +284,7 @@ def load_report_metadata_batch(
 
     Args:
         cache_manager: CacheManager instance for cache operations.
-        report_configs: List of ReportConfig instances to load.
+        report_config: List of ReportConfig instances to load.
 
     Returns:
         Dict mapping ReportConfig -> metadata dict.
@@ -290,12 +294,12 @@ def load_report_metadata_batch(
 
     Example:
         >>> cache_manager = CacheManager(cache_root=Path("my_project/dev/cache"))
-        >>> configs = [
+        >>> config = [
         ...     ReportConfig("bq8xyx9z", "Accounts", "Python"),
         ...     ReportConfig("bq8xyx9z", "Contacts", "Active"),
         ... ]
-        >>> all_metadata = load_report_metadata_batch(cache_manager, configs)
-        >>> python_metadata = all_metadata[configs[0]]
+        >>> all_metadata = load_report_metadata_batch(cache_manager, config)
+        >>> python_metadata = all_metadata[config[0]]
     """
     if not report_configs:
         return {}

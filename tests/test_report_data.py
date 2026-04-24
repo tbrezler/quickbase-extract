@@ -401,7 +401,7 @@ class TestGetDataParallel:
         )
 
         assert results == {}
-        assert "No report configs provided" in caplog.text
+        assert "No report config provided" in caplog.text
 
     def test_parallel_with_per_report_ask_values(self, temp_cache_dir, mock_qb_api, sample_report_configs):
         """Test parallel execution with per-report ask values."""
@@ -608,4 +608,6 @@ class TestLoadDataBatch:
             assert isinstance(key, ReportConfig)
 
         # Should be able to look up by config
+        assert all_data[sample_report_configs[0]][0]["Name"] == "Alice"
+        assert all_data[sample_report_configs[0]][0]["Name"] == "Alice"
         assert all_data[sample_report_configs[0]][0]["Name"] == "Alice"

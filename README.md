@@ -54,7 +54,7 @@ cache_mgr = CacheManager(
 )
 
 # Define report configurations as ReportConfig instances
-report_configs_all = [
+report_config_all = [
     ReportConfig(
         app_id="bq8xyx9z",
         app_name="sales_tracker",
@@ -645,7 +645,7 @@ ask_values_map = {
 data = get_data_parallel(
     client,
     cache_mgr,
-    report_configs,
+    report_config,
     metadata,
     ask_values=ask_values_map
 )
@@ -1006,12 +1006,12 @@ def lambda_handler_with_dynamic_filters(event, context):
 
     # Get requested reports
     requested_reports = event.get("reports", [])
-    report_configs = [get_report(name) for name in requested_reports]
+    report_config = [get_report(name) for name in requested_reports]
 
     # Map ask_values to configs
     ask_values_dict = event.get("ask_values", {})
     ask_values_map = {}
-    for report_name, config in zip(requested_reports, report_configs):
+    for report_name, config in zip(requested_reports, report_config):
         if report_name in ask_values_dict:
             ask_values_map[config] = ask_values_dict[report_name]
 
@@ -1019,7 +1019,7 @@ def lambda_handler_with_dynamic_filters(event, context):
     data = get_data_parallel(
         client,
         cache_mgr,
-        report_configs,
+        report_config,
         metadata,
         ask_values=ask_values_map if ask_values_map else None,
         cache=True
@@ -1172,13 +1172,13 @@ data = metadata[config]
 
 ### Metadata Operations
 
-#### `load_report_metadata_batch(cache_manager, report_configs)`
+#### `load_report_metadata_batch(cache_manager, report_config)`
 
 Load cached metadata for multiple reports.
 
 **Parameters:**
 - `cache_manager` (CacheManager): Cache manager instance
-- `report_configs` (list[ReportConfig]): List of ReportConfig instances to load
+- `report_config` (list[ReportConfig]): List of ReportConfig instances to load
 
 **Returns:** Dict mapping ReportConfig → metadata dict
 
@@ -1331,14 +1331,14 @@ for record in customers:
     print(record["Name"], record["Email"])
 ```
 
-#### `get_data_parallel(client, cache_manager, report_configs, report_metadata, cache=False, max_workers=8, ask_values=None)`
+#### `get_data_parallel(client, cache_manager, report_config, report_metadata, cache=False, max_workers=8, ask_values=None)`
 
 Fetch data for multiple reports in parallel.
 
 **Parameters:**
 - `client`: Quickbase API client (should be thread-safe)
 - `cache_manager` (CacheManager): Cache manager instance
-- `report_configs` (list[ReportConfig]): List of report configs to fetch
+- `report_config` (list[ReportConfig]): List of report configs to fetch
 - `report_metadata` (dict): Full metadata dict from `load_report_metadata_batch()`
 - `cache` (bool): Whether to cache the retrieved data. Default: False.
 - `max_workers` (int): Maximum number of concurrent threads. Default: 8. Adjust based on API rate limits.
@@ -1368,13 +1368,13 @@ data = get_data_parallel(
 
 # With per-report ask values
 ask_values = {
-    report_configs[0]: {"ask1": "Active"},
-    report_configs[1]: {"ask1": "2024-01-01"},
+    report_config[0]: {"ask1": "Active"},
+    report_config[1]: {"ask1": "2024-01-01"},
 }
 data = get_data_parallel(
     client,
     cache_mgr,
-    [report_configs[0], report_configs[1]],
+    [report_config[0], report_config[1]],
     metadata,
     ask_values=ask_values
 )
@@ -1404,18 +1404,18 @@ Load cached data for a single report (no API call).
 from quickbase_extract.report_data import load_data
 
 # Load from cache (instant, no API call)
-cached_customers = load_data(cache_mgr, report_configs[0], metadata)
+cached_customers = load_data(cache_mgr, report_config[0], metadata)
 
 print(f"Loaded {len(cached_customers)} customers from cache")
 ```
 
-#### `load_data_batch(cache_manager, report_configs, report_metadata)`
+#### `load_data_batch(cache_manager, report_config, report_metadata)`
 
 Load cached data for multiple reports.
 
 **Parameters:**
 - `cache_manager` (CacheManager): Cache manager instance
-- `report_configs` (list[ReportConfig]): List of report configs to load
+- `report_config` (list[ReportConfig]): List of report configs to load
 - `report_metadata` (dict): Full metadata dict from `load_report_metadata_batch()`
 
 **Returns:** Dict mapping ReportConfig → list of record dicts
@@ -1535,7 +1535,7 @@ def lambda_handler(event, context):
     sync_from_s3_once(cache_mgr)
 
     # Proceed with cache operations
-    metadata = load_report_metadata_batch(cache_mgr, configs)
+    metadata = load_report_metadata_batch(cache_mgr, config)
 ```
 
 ### Query Execution with Retry Logic
@@ -1711,7 +1711,7 @@ Metadata (table structure, field mappings) changes infrequently. Only refresh wh
 ```python
 # Manual metadata refresh (not in production loop)
 if metadata_changed:
-    refresh_all(client, report_configs)
+    refresh_all(client, report_config)
 ```
 
 ### 2. Data Caching Strategy
@@ -1720,7 +1720,7 @@ For Lambda, cache data during the function execution to avoid repeated API calls
 
 ```python
 # Good: Fetch once, cache, reuse
-metadata = load_report_metadata_batch(report_configs)
+metadata = load_report_metadata_batch(report_config)
 data = get_data_parallel(client, metadata, descriptions, cache=True)
 
 # Later in same invocation
@@ -2033,43 +2033,6 @@ cache_mgr = CacheManager(cache_root=cache_path)
 ```python
 # Lambda always works
 cache_mgr = CacheManager(cache_root=Path("/tmp/my_project/cache"))
-```
-
----
-
-### Issue: TypeError: "report_configs expected list[ReportConfig], got list[dict]"
-
-**Error Message:**
-```
-TypeError: report_configs must be list[ReportConfig], not list[dict]
-```
-
-**Cause:** Still using old dict-based configs instead of `ReportConfig` instances.
-
-**Solution:** Update to use `ReportConfig`:
-
-```python
-# ❌ Old (doesn't work anymore)
-report_configs = [
-    {
-        "Description": "customers",
-        "App ID": "bq8xyx9z",
-        "Table": "Customers",
-        "Report": "Python"
-    }
-]
-
-# ✅ New (correct)
-from quickbase_extract.config import ReportConfig
-
-report_configs = [
-    ReportConfig(
-        app_id="bq8xyx9z",
-        app_name="sales",
-        table_name="Customers",
-        report_name="Python"
-    )
-]
 ```
 
 ---
@@ -2782,15 +2745,15 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def process_reports_with_progress(client, cache_mgr, metadata, report_configs):
+def process_reports_with_progress(client, cache_mgr, metadata, report_config):
     """Process multiple reports with progress tracking.
 
     Useful for long-running operations or monitoring large batches.
     """
     results = {}
-    total = len(report_configs)
+    total = len(report_config)
 
-    for i, config in enumerate(report_configs, 1):
+    for i, config in enumerate(report_config, 1):
         logger.info(f"Processing {i}/{total}: {config.table_name} - {config.report_name}")
 
         try:
@@ -2922,7 +2885,7 @@ class QuickbaseConfig:
 
     def _load_config(self):
         """Load environment-specific configuration."""
-        configs = {
+        config = {
             "dev": {
                 "realm": os.environ.get("QB_REALM", "dev-realm.quickbase.com"),
                 "token": os.environ.get("QB_USER_TOKEN"),
@@ -2949,7 +2912,7 @@ class QuickbaseConfig:
                 "data_stale_hours": 24,       # 1 day
             }
         }
-        return configs[self.env]
+        return config[self.env]
 
     def get_client(self):
         """Get Quickbase API client."""
@@ -3613,14 +3576,14 @@ def time_operation(operation_name):
 
 # Usage
 @time_operation("Metadata Load")
-def load_all_metadata(cache_mgr, configs):
+def load_all_metadata(cache_mgr, config):
     from quickbase_extract.report_metadata import load_report_metadata_batch
-    return load_report_metadata_batch(cache_mgr, configs)
+    return load_report_metadata_batch(cache_mgr, config)
 
 @time_operation("Data Fetch")
-def fetch_all_data(client, cache_mgr, configs, metadata):
+def fetch_all_data(client, cache_mgr, config, metadata):
     from quickbase_extract.report_data import get_data_parallel
-    return get_data_parallel(client, cache_mgr, configs, metadata)
+    return get_data_parallel(client, cache_mgr, config, metadata)
 
 # Logged output:
 # Metadata Load: 0.23s
@@ -3809,17 +3772,17 @@ class QuickbaseToPostgresETL:
         self.pg_conn = psycopg2.connect(pg_conn_string)
         self.warehouse_schema = "quickbase_warehouse"
 
-    def extract(self, report_configs):
+    def extract(self, report_config):
         """Extract data from Quickbase.
 
         Always fetches fresh data (no caching) for ETL.
         """
-        logger.info(f"Extracting {len(report_configs)} reports from Quickbase...")
+        logger.info(f"Extracting {len(report_config)} reports from Quickbase...")
 
         return get_data_parallel(
             self.qb_client,
             self.cache_mgr,
-            report_configs,
+            report_config,
             self.metadata,
             cache=False  # Always fresh for ETL
         )
@@ -3911,12 +3874,12 @@ class QuickbaseToPostgresETL:
         finally:
             cursor.close()
 
-    def run(self, report_configs):
+    def run(self, report_config):
         """Run full ETL pipeline: Extract → Transform → Load."""
         logger.info("Starting ETL pipeline...")
 
         # Extract
-        data = self.extract(report_configs)
+        data = self.extract(report_config)
 
         # Transform
         transformed = self.transform(data)

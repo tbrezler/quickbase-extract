@@ -29,10 +29,10 @@ class TestFetchReportMetadataApi:
         # Should have essentials
         assert result["table_id"] == "tblXYZ123"
         assert result["field_label"] == {
-            "Record ID#": "3",
-            "Name": "6",
-            "Email": "7",
-            "Status": "8",
+            "Record ID#": 3,
+            "Name": 6,
+            "Email": 7,
+            "Status": 8,
         }
         assert result["fields"] == [3, 6, 7, 8]
         assert result["filter"] == "{8.EX.'Active'}"
@@ -276,7 +276,7 @@ class TestGetReportMetadataParallel:
             cache=True,
         )
 
-        assert "No report configs provided" in caplog.text
+        assert "No report config provided" in caplog.text
 
 
 class TestLoadReportMetadata:
@@ -391,5 +391,7 @@ class TestLoadReportMetadataBatch:
 
         # Should be able to look up by config
         config1 = sample_report_configs[0]
+        assert all_metadata[config1]["table_id"] == "tblXYZ123"
+        assert all_metadata[config1]["table_id"] == "tblXYZ123"
         assert all_metadata[config1]["table_id"] == "tblXYZ123"
         assert all_metadata[config1]["table_id"] == "tblXYZ123"
