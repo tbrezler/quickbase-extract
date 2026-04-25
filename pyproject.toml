@@ -44,16 +44,10 @@ Documentation = "https://github.com/tbrezler/quickbase-extract#readme"
 packages = ["src/quickbase_extract"]
 include = ["src/quickbase_extract/py.typed"]
 
-[tool.black]
-line-length = 120
-target-version = ['py312']
-
 [tool.ruff]
 line-length = 120
 target-version = "py312"
+
+[tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "N", "C4", "BLE", "A"]
 ignore = ["E501"]
-
-[tool.flake8]
-max-line-length = 120
-extend-ignore = ["E203", "W503"]

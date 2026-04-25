@@ -48,15 +48,6 @@ src/*.egg-info/
 *.log
 logs/
 
-# Database files
-*.db
-*.sqlite
-*.sqlite3
-
-# Node modules
-node_modules/
-npm-debug.log
-
 # IDE caches
 .idea/
 *.swp

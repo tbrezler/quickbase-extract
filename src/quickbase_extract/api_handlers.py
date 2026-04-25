@@ -4,6 +4,8 @@ Provides retry logic for rate-limited requests, standardized error handling,
 and logging for Quickbase API operations.
 """
 
+# ruff: noqa: BLE001
+
 import logging
 import random
 import time
@@ -58,12 +60,12 @@ def handle_upsert(
             unchanged = result.get("metadata", {}).get("unchangedRecordIds", [])
 
             logger.info(
-                f"Upsert {description}: {len(created)} created, {len(updated)} updated, " f"{len(unchanged)} unchanged"
+                f"Upsert {description}: {len(created)} created, {len(updated)} updated, {len(unchanged)} unchanged"
             )
 
             return result
 
-        except Exception as e:  # noqa: BLE001  # Need to catch all exceptions for retry logic
+        except Exception as e:  # Need to catch all exceptions for retry logic
             error_str = str(e)
 
             # Retry on 429 (rate limit)
@@ -117,7 +119,7 @@ def handle_delete(
             logger.info(f"Delete {description}: {deleted} records deleted")
             return deleted
 
-        except Exception as e:  # noqa: BLE001  # Need to catch all exceptions for retry logic
+        except Exception as e:  # Need to catch all exceptions for retry logic
             error_str = str(e)
 
             # Only retry on 429 (rate limit) - other errors are too risky to retry
@@ -193,7 +195,7 @@ def handle_query(
             logger.info(f"Query{desc_str} returned {record_count} records")
             return result
 
-        except Exception as e:  # noqa: BLE001  # Need to catch all exceptions for retry logic
+        except Exception as e:  # Need to catch all exceptions for retry logic
             error_str = str(e)
 
             if "429" in error_str and attempt < max_retries - 1:

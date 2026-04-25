@@ -25,9 +25,15 @@ Quick Start:
 """
 
 import logging
+from importlib.metadata import version
 
 # API operations with error handling
-from quickbase_extract.api_handlers import QuickbaseOperationError, handle_delete, handle_query, handle_upsert
+from quickbase_extract.api_handlers import (
+    QuickbaseOperationError,
+    handle_delete,
+    handle_query,
+    handle_upsert,
+)
 
 # Cache management
 from quickbase_extract.cache_manager import CacheManager
@@ -42,7 +48,12 @@ from quickbase_extract.cache_sync import is_cache_synced, sync_from_s3_once
 from quickbase_extract.config import ReportConfig
 
 # Report data retrieval
-from quickbase_extract.report_data import get_data, get_data_parallel, load_data, load_data_batch
+from quickbase_extract.report_data import (
+    get_data,
+    get_data_parallel,
+    load_data,
+    load_data_batch,
+)
 
 # Report metadata
 from quickbase_extract.report_metadata import (
@@ -55,7 +66,7 @@ from quickbase_extract.report_metadata import (
 # Utilities
 from quickbase_extract.utils import normalize_name
 
-__version__ = "0.2.0"
+__version__ = version("quickbase-extract")
 
 # Configure logging
 logging.getLogger(__name__).addHandler(logging.NullHandler())
