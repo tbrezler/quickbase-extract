@@ -201,3 +201,11 @@ def reset_singletons():
     yield
 
     _reset_cache_sync()
+
+
+@pytest.fixture
+def mock_s3_client():
+    """Create a mock S3 client for testing."""
+    from unittest.mock import MagicMock
+
+    return MagicMock()

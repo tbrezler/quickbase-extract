@@ -80,7 +80,9 @@ class CacheManager:
         self.cache_root.mkdir(parents=True, exist_ok=True)
         logger.debug(f"Cache root: {self.cache_root}")
 
-    def get_metadata_path(self, app_name: str, table_name: str, report_name: str) -> Path:
+    def get_metadata_path(
+        self, app_name: str, table_name: str, report_name: str
+    ) -> Path:
         """Get path for report metadata file.
 
         Args:
@@ -99,7 +101,12 @@ class CacheManager:
         table_fmt = normalize_name(table_name)
         report_fmt = normalize_name(report_name)
 
-        path = self.cache_root / "report_metadata" / app_fmt / f"{table_fmt}_{report_fmt}.json"
+        path = (
+            self.cache_root
+            / "report_metadata"
+            / app_fmt
+            / f"{table_fmt}_{report_fmt}.json"
+        )
         path.parent.mkdir(parents=True, exist_ok=True)
         return path
 
@@ -122,7 +129,12 @@ class CacheManager:
         table_fmt = normalize_name(table_name)
         report_fmt = normalize_name(report_name)
 
-        path = self.cache_root / "report_data" / app_fmt / f"{table_fmt}_{report_fmt}_data.json"
+        path = (
+            self.cache_root
+            / "report_data"
+            / app_fmt
+            / f"{table_fmt}_{report_fmt}_data.json"
+        )
         path.parent.mkdir(parents=True, exist_ok=True)
         return path
 
@@ -175,7 +187,11 @@ class CacheManager:
         """
         try:
             relative_path = file_path.relative_to(self.cache_root)
-            s3_key = f"{self.s3_prefix}/{relative_path}" if self.s3_prefix else str(relative_path)
+            s3_key = (
+                f"{self.s3_prefix}/{relative_path}"
+                if self.s3_prefix
+                else str(relative_path)
+            )
             self.s3_client.upload_file(str(file_path), self.s3_bucket, s3_key)
             logger.info(f"Synced {s3_key} to S3")
         except Exception as e:
@@ -226,7 +242,15 @@ class CacheManager:
                     local_path = self.cache_root / relative_key
 
                     local_path.parent.mkdir(parents=True, exist_ok=True)
-                    self.s3_client.download_file(self.s3_bucket, s3_key, str(local_path))
+                    self.s3_client.download_file(
+                        self.s3_bucket, s3_key, str(local_path)
+                    )
+
+                    # Preserve S3 LastModified timestamp so cache age checks remain accurate
+                    # Without this, st_mtime is set to "now" and age always reads ~0 after sync
+                    last_modified = obj["LastModified"].timestamp()
+                    os.utime(str(local_path), (last_modified, last_modified))
+
                     file_count += 1
 
             logger.info(f"Synced {file_count} files from S3")
@@ -252,7 +276,9 @@ class CacheManager:
             ...     print("Metadata cache is empty")
         """
         if cache_type not in ("metadata", "data"):
-            raise ValueError(f"cache_type must be 'metadata' or 'data', got: {cache_type}")
+            raise ValueError(
+                f"cache_type must be 'metadata' or 'data', got: {cache_type}"
+            )
 
         cache_dir = self.cache_root / f"report_{cache_type}"
 
@@ -290,7 +316,9 @@ class CacheManager:
             ...     print(f"Cache is {age} hours old, needs refresh")
         """
         if cache_type not in ("metadata", "data"):
-            raise ValueError(f"cache_type must be 'metadata' or 'data', got: {cache_type}")
+            raise ValueError(
+                f"cache_type must be 'metadata' or 'data', got: {cache_type}"
+            )
 
         cache_dir = self.cache_root / f"report_{cache_type}"
 
@@ -307,7 +335,9 @@ class CacheManager:
 
         return round(age_hours, 1)
 
-    def has_report_metadata(self, app_name: str, table_name: str, report_name: str) -> bool:
+    def has_report_metadata(
+        self, app_name: str, table_name: str, report_name: str
+    ) -> bool:
         """Check if metadata for a specific report exists in cache.
 
         Args:

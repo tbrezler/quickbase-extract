@@ -1,7 +1,6 @@
 """S3-backed cache sync for Lambda environments."""
 
 import logging
-import os
 
 from quickbase_extract.cache_manager import CacheManager
 
@@ -15,7 +14,7 @@ def sync_from_s3_once(cache_manager: CacheManager, force: bool = False) -> None:
     """Download cache from S3 to /tmp on Lambda cold start.
 
     Only syncs if cache hasn't been synced in this invocation.
-    Subsequent calls are no-ops unless force=True or FORCE_CACHE_REFRESH env var is set.
+    Subsequent calls are no-ops unless force=True.
 
     On Lambda, the sync flag persists across warm invocations within the same
     container, so warm starts skip the sync (Lambda /tmp persists). Only cold
@@ -27,16 +26,10 @@ def sync_from_s3_once(cache_manager: CacheManager, force: bool = False) -> None:
     Args:
         cache_manager: CacheManager instance for cache operations.
         force: If True, sync even if already synced in this invocation.
-            Defaults to False. Can also be triggered via FORCE_CACHE_REFRESH
-            environment variable.
+            Defaults to False.
 
     Raises:
         Exception: If S3 operations fail.
-
-    Environment Variables:
-        FORCE_CACHE_REFRESH: If set to "true" (case-insensitive), forces a
-            cache sync even if already synced. Useful for triggering refreshes
-            without code changes (e.g., from Lambda console or alerting system).
 
     Example:
         >>> # In Lambda handler initialization
@@ -50,18 +43,13 @@ def sync_from_s3_once(cache_manager: CacheManager, force: bool = False) -> None:
         >>>
         >>> # Force re-sync if needed (programmatically)
         >>> sync_from_s3_once(cache_manager, force=True)
-        >>>
-        >>> # Or set environment variable before invocation
-        >>> # FORCE_CACHE_REFRESH=true (then call normally)
-        >>> sync_from_s3_once(cache_manager)  # Will sync regardless of _CACHE_SYNCED flag
     """
     global _CACHE_SYNCED
 
-    # Check for force refresh via environment variable
-    force_env = os.environ.get("FORCE_CACHE_REFRESH", "").lower() == "true"
-    should_sync = _CACHE_SYNCED and not force and not force_env
+    # Check for force refresh
+    already_synced = _CACHE_SYNCED and not force
 
-    if should_sync:
+    if already_synced:
         logger.debug("Cache already synced in this invocation, skipping")
         return
 

@@ -1,7 +1,10 @@
 """Unit tests for cache_manager module."""
 
+import logging
 import os
 import time
+from datetime import UTC, datetime
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -52,7 +55,6 @@ class TestCacheManagerInit:
         nested_dir = temp_cache_dir / "nested" / "cache"
         assert not nested_dir.exists()
 
-        # Create CacheManager - this should create the directory
         CacheManager(cache_root=nested_dir)
 
         assert nested_dir.exists()
@@ -63,7 +65,6 @@ class TestCacheManagerInit:
         monkeypatch.setenv("CACHE_BUCKET", "my-bucket")
 
         with patch("quickbase_extract.cache_manager.boto3.client") as mock_boto:
-            # Create CacheManager - this should call boto3.client
             CacheManager(
                 cache_root=temp_cache_dir,
                 s3_bucket="my-bucket",
@@ -83,12 +84,13 @@ class TestCacheManagerInit:
         """Test that s3_prefix is required when using S3 on Lambda."""
         monkeypatch.setenv("AWS_LAMBDA_FUNCTION_NAME", "test-function")
 
-        with pytest.raises(ValueError, match="s3_prefix is required"):
-            CacheManager(
-                cache_root=temp_cache_dir,
-                s3_bucket="my-bucket",
-                s3_prefix=None,
-            )
+        with patch("quickbase_extract.cache_manager.boto3.client"):
+            with pytest.raises(ValueError, match="s3_prefix is required"):
+                CacheManager(
+                    cache_root=temp_cache_dir,
+                    s3_bucket="my-bucket",
+                    s3_prefix=None,
+                )
 
 
 class TestCacheManagerPaths:
@@ -102,7 +104,7 @@ class TestCacheManagerPaths:
 
         assert path.name == "my_table_python.json"
         assert "report_metadata" in str(path)
-        assert "my_app" in str(path)  # Now includes app subdirectory
+        assert "my_app" in str(path)
 
     def test_get_data_path(self, temp_cache_dir):
         """Test data path generation."""
@@ -112,7 +114,7 @@ class TestCacheManagerPaths:
 
         assert path.name == "my_table_python_data.json"
         assert "report_data" in str(path)
-        assert "my_app" in str(path)  # Now includes app subdirectory
+        assert "my_app" in str(path)
 
     def test_metadata_path_creates_parent_dirs(self, temp_cache_dir):
         """Test that metadata path creation makes parent directories."""
@@ -134,7 +136,7 @@ class TestCacheManagerPaths:
 
         path = mgr.get_metadata_path("Data Lake", "Employee Appointments", "Aureus")
 
-        assert "data_lake" in str(path)  # App subdirectory
+        assert "data_lake" in str(path)
         assert "employee_appointments" in str(path)
         assert "aureus" in str(path)
 
@@ -198,7 +200,6 @@ class TestCacheManagerFileOperations:
             test_file = temp_cache_dir / "test.json"
             mgr.write_file(test_file, "content")
 
-            # S3 upload should be called
             mock_s3.upload_file.assert_called_once()
 
     def test_write_file_no_s3_sync_locally(self, temp_cache_dir, monkeypatch):
@@ -212,6 +213,29 @@ class TestCacheManagerFileOperations:
 
             mock_boto.assert_not_called()
 
+    def test_write_file_raises_on_s3_failure(self, temp_cache_dir, monkeypatch):
+        """Test that write_file propagates S3 upload errors."""
+        monkeypatch.setenv("AWS_LAMBDA_FUNCTION_NAME", "test-function")
+        monkeypatch.setenv("CACHE_BUCKET", "my-bucket")
+
+        with patch("quickbase_extract.cache_manager.boto3.client") as mock_boto:
+            mock_s3 = MagicMock()
+            mock_boto.return_value = mock_s3
+            mock_s3.upload_file.side_effect = Exception("S3 upload failed")
+
+            mgr = CacheManager(
+                cache_root=temp_cache_dir,
+                s3_bucket="my-bucket",
+                s3_prefix="project/dev/cache",
+            )
+            test_file = temp_cache_dir / "test.json"
+
+            with pytest.raises(Exception, match="S3 upload failed"):
+                mgr.write_file(test_file, "content")
+
+            # File should still be written locally
+            assert test_file.exists()
+
 
 class TestCacheManagerS3Sync:
     """Tests for S3 sync operations."""
@@ -224,10 +248,11 @@ class TestCacheManagerS3Sync:
             mgr = CacheManager(cache_root=temp_cache_dir)
             mgr.sync_from_s3()
 
-            # Should not call boto3 if not Lambda
             mock_boto.assert_not_called()
 
-    def test_sync_from_s3_requires_cache_bucket(self, temp_cache_dir, monkeypatch, caplog):
+    def test_sync_from_s3_requires_cache_bucket(
+        self, temp_cache_dir, monkeypatch, caplog
+    ):
         """Test that sync_from_s3 skips if CACHE_BUCKET not set."""
         monkeypatch.setenv("AWS_LAMBDA_FUNCTION_NAME", "test-function")
         monkeypatch.delenv("CACHE_BUCKET", raising=False)
@@ -237,9 +262,10 @@ class TestCacheManagerS3Sync:
             mock_boto.return_value = mock_s3
 
             mgr = CacheManager(cache_root=temp_cache_dir)
-            mgr.sync_from_s3()
 
-            # S3 operations should not be called
+            with caplog.at_level(logging.DEBUG):
+                mgr.sync_from_s3()
+
             mock_s3.get_paginator.assert_not_called()
             assert "CACHE_BUCKET not set" in caplog.text
 
@@ -252,18 +278,30 @@ class TestCacheManagerS3Sync:
             mock_s3 = MagicMock()
             mock_boto.return_value = mock_s3
 
-            # Mock paginator response
+            mock_last_modified = datetime(2025, 1, 1, tzinfo=UTC)
+
             mock_paginator = MagicMock()
             mock_s3.get_paginator.return_value = mock_paginator
-            # The paginator returns a list of pages, each page has a "Contents" key
             mock_paginator.paginate.return_value = [
                 {
                     "Contents": [
-                        {"Key": "project/dev/cache/report_metadata/app/table_report.json"},
-                        {"Key": "project/dev/cache/report_data/app/table_data.json"},
+                        {
+                            "Key": "project/dev/cache/report_metadata/app/table_report.json",
+                            "LastModified": mock_last_modified,
+                        },
+                        {
+                            "Key": "project/dev/cache/report_data/app/table_data.json",
+                            "LastModified": mock_last_modified,
+                        },
                     ]
                 }
             ]
+
+            def create_file(bucket, key, local_path):
+                Path(local_path).parent.mkdir(parents=True, exist_ok=True)
+                Path(local_path).write_text("{}")
+
+            mock_s3.download_file.side_effect = create_file
 
             mgr = CacheManager(
                 cache_root=temp_cache_dir,
@@ -272,10 +310,11 @@ class TestCacheManagerS3Sync:
             )
             mgr.sync_from_s3()
 
-            # Should download each file
             assert mock_s3.download_file.call_count == 2
 
-    def test_sync_from_s3_creates_directories(self, temp_cache_dir, monkeypatch, caplog):
+    def test_sync_from_s3_creates_directories(
+        self, temp_cache_dir, monkeypatch, caplog
+    ):
         """Test that sync_from_s3 creates necessary directories."""
         monkeypatch.setenv("AWS_LAMBDA_FUNCTION_NAME", "test-function")
         monkeypatch.setenv("CACHE_BUCKET", "my-bucket")
@@ -284,24 +323,60 @@ class TestCacheManagerS3Sync:
             mock_s3 = MagicMock()
             mock_boto.return_value = mock_s3
 
+            mock_last_modified = datetime(2025, 1, 1, tzinfo=UTC)
+
             mock_paginator = MagicMock()
             mock_s3.get_paginator.return_value = mock_paginator
             mock_paginator.paginate.return_value = [
                 {
                     "Contents": [
-                        {"Key": "project/dev/cache/report_metadata/app/table_report.json"},
+                        {
+                            "Key": "project/dev/cache/report_metadata/app/table_report.json",
+                            "LastModified": mock_last_modified,
+                        },
                     ]
                 }
             ]
+
+            def create_file(bucket, key, local_path):
+                Path(local_path).parent.mkdir(parents=True, exist_ok=True)
+                Path(local_path).write_text("{}")
+
+            mock_s3.download_file.side_effect = create_file
 
             mgr = CacheManager(
                 cache_root=temp_cache_dir,
                 s3_bucket="my-bucket",
                 s3_prefix="project/dev/cache",
             )
-            mgr.sync_from_s3()
+
+            with caplog.at_level(logging.INFO):
+                mgr.sync_from_s3()
 
             assert "Synced 1 files from S3" in caplog.text
+
+    def test_get_cache_age_hours_with_old_files(self, temp_cache_dir):
+        """Verify cache age is calculated correctly from file mtime."""
+
+        # Create cache directory structure
+        cache_dir = temp_cache_dir / "report_metadata" / "app"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create a test file
+        test_file = cache_dir / "table_report.json"
+        test_file.write_text("{}")
+
+        # Set its mtime to 48 hours ago
+        past_time = time.time() - (48 * 3600)
+        os.utime(test_file, (past_time, past_time))
+
+        cache_manager = CacheManager(cache_root=temp_cache_dir)
+
+        # Get cache age
+        age = cache_manager.get_cache_age_hours("metadata")
+
+        # Should be approximately 48 hours (within 1 hour tolerance for test execution time)
+        assert 47 < age < 49
 
 
 class TestCacheManagerCacheChecks:
@@ -311,30 +386,24 @@ class TestCacheManagerCacheChecks:
         """Test is_cache_empty for metadata."""
         mgr = CacheManager(cache_root=temp_cache_dir)
 
-        # Empty initially
         assert mgr.is_cache_empty("metadata") is True
 
-        # Create a metadata file
         metadata_dir = temp_cache_dir / "report_metadata" / "app"
         metadata_dir.mkdir(parents=True)
         (metadata_dir / "table_report.json").write_text("{}")
 
-        # Not empty now
         assert mgr.is_cache_empty("metadata") is False
 
     def test_is_cache_empty_data(self, temp_cache_dir):
         """Test is_cache_empty for data."""
         mgr = CacheManager(cache_root=temp_cache_dir)
 
-        # Empty initially
         assert mgr.is_cache_empty("data") is True
 
-        # Create a data file
         data_dir = temp_cache_dir / "report_data" / "app"
         data_dir.mkdir(parents=True)
         (data_dir / "table_data.json").write_text("[]")
 
-        # Not empty now
         assert mgr.is_cache_empty("data") is False
 
     def test_is_cache_empty_invalid_type(self, temp_cache_dir):
@@ -348,18 +417,16 @@ class TestCacheManagerCacheChecks:
         """Test get_cache_age_hours returns correct age."""
         mgr = CacheManager(cache_root=temp_cache_dir)
 
-        # Create a metadata file
         metadata_dir = temp_cache_dir / "report_metadata" / "app"
         metadata_dir.mkdir(parents=True)
         metadata_file = metadata_dir / "table_report.json"
         metadata_file.write_text("{}")
 
-        # Set modification time to 2 hours ago
         old_time = time.time() - (2 * 3600)
         os.utime(metadata_file, (old_time, old_time))
 
         age = mgr.get_cache_age_hours("metadata")
-        assert 1.9 < age < 2.1  # Allow small margin
+        assert 1.9 < age < 2.1
 
     def test_get_cache_age_hours_empty_cache(self, temp_cache_dir):
         """Test get_cache_age_hours returns 0 for empty cache."""
@@ -374,4 +441,35 @@ class TestCacheManagerCacheChecks:
 
         with pytest.raises(ValueError, match="cache_type must be"):
             mgr.get_cache_age_hours("invalid")
-            mgr.get_cache_age_hours("invalid")
+
+
+class TestCacheManagerReportChecks:
+    """Tests for report-level existence checks."""
+
+    def test_has_report_metadata_true(self, temp_cache_dir):
+        """Test has_report_metadata returns True when file exists."""
+        mgr = CacheManager(cache_root=temp_cache_dir)
+        path = mgr.get_metadata_path("My App", "My Table", "Python")
+        path.write_text("{}")
+
+        assert mgr.has_report_metadata("My App", "My Table", "Python") is True
+
+    def test_has_report_metadata_false(self, temp_cache_dir):
+        """Test has_report_metadata returns False when file missing."""
+        mgr = CacheManager(cache_root=temp_cache_dir)
+
+        assert mgr.has_report_metadata("My App", "My Table", "Python") is False
+
+    def test_has_report_data_true(self, temp_cache_dir):
+        """Test has_report_data returns True when file exists."""
+        mgr = CacheManager(cache_root=temp_cache_dir)
+        path = mgr.get_data_path("My App", "My Table", "Python")
+        path.write_text("[]")
+
+        assert mgr.has_report_data("My App", "My Table", "Python") is True
+
+    def test_has_report_data_false(self, temp_cache_dir):
+        """Test has_report_data returns False when file missing."""
+        mgr = CacheManager(cache_root=temp_cache_dir)
+
+        assert mgr.has_report_data("My App", "My Table", "Python") is False

@@ -4,7 +4,11 @@ from unittest.mock import patch
 
 import pytest
 from quickbase_extract.cache_manager import CacheManager
-from quickbase_extract.cache_sync import _reset_cache_sync, is_cache_synced, sync_from_s3_once
+from quickbase_extract.cache_sync import (
+    _reset_cache_sync,
+    is_cache_synced,
+    sync_from_s3_once,
+)
 
 
 class TestSyncFromS3Once:
@@ -114,4 +118,5 @@ class TestResetCacheSync:
 
             # Should be able to sync again
             sync_from_s3_once(cache_mgr)
+            assert mock_sync.call_count == 2
             assert mock_sync.call_count == 2

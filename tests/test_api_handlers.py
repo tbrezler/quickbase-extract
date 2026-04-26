@@ -3,7 +3,12 @@
 import time
 
 import pytest
-from quickbase_extract.api_handlers import QuickbaseOperationError, handle_delete, handle_query, handle_upsert
+from quickbase_extract.api_handlers import (
+    QuickbaseOperationError,
+    handle_delete,
+    handle_query,
+    handle_upsert,
+)
 
 
 class TestQuickbaseOperationError:
@@ -56,7 +61,13 @@ class TestHandleUpsert:
         mock_qb_api.upsert_records.side_effect = [
             Exception("429 Rate Limit Exceeded"),
             Exception("429 Rate Limit Exceeded"),
-            {"metadata": {"createdRecordIds": [], "updatedRecordIds": [], "unchangedRecordIds": []}},
+            {
+                "metadata": {
+                    "createdRecordIds": [],
+                    "updatedRecordIds": [],
+                    "unchangedRecordIds": [],
+                }
+            },
         ]
 
         with pytest.raises(QuickbaseOperationError):
@@ -78,11 +89,19 @@ class TestHandleUpsert:
         """Test that wait time is capped at 60 seconds."""
         mock_qb_api.upsert_records.side_effect = [
             Exception("429 Rate Limit"),
-            {"metadata": {"createdRecordIds": [], "updatedRecordIds": [], "unchangedRecordIds": []}},
+            {
+                "metadata": {
+                    "createdRecordIds": [],
+                    "updatedRecordIds": [],
+                    "unchangedRecordIds": [],
+                }
+            },
         ]
 
         start = time.time()
-        handle_upsert(mock_qb_api, "tblXYZ", [], max_retries=10)  # Would be 2^9 = 512s without cap
+        handle_upsert(
+            mock_qb_api, "tblXYZ", [], max_retries=10
+        )  # Would be 2^9 = 512s without cap
         elapsed = time.time() - start
 
         # Should be capped at ~60 seconds, not 512
@@ -94,10 +113,14 @@ class TestHandleDelete:
 
     def test_delete_success(self, mock_qb_api):
         """Test successful delete."""
-        result = handle_delete(mock_qb_api, "tblXYZ", where="{8.EX.'Inactive'}", description="Test delete")
+        result = handle_delete(
+            mock_qb_api, "tblXYZ", where="{8.EX.'Inactive'}", description="Test delete"
+        )
 
         assert result == 5
-        mock_qb_api.delete_records.assert_called_once_with("tblXYZ", where="{8.EX.'Inactive'}")
+        mock_qb_api.delete_records.assert_called_once_with(
+            "tblXYZ", where="{8.EX.'Inactive'}"
+        )
 
     def test_delete_logs_result(self, mock_qb_api, caplog):
         """Test that delete logs result."""
@@ -222,4 +245,5 @@ class TestHandleQuery:
         """Test that description appears in log messages."""
         handle_query(mock_qb_api, "tblXYZ", description="customer records")
 
+        assert "customer records" in caplog.text
         assert "customer records" in caplog.text

@@ -30,9 +30,13 @@ class TestGetMissingReports:
             metadata_dir.mkdir(parents=True, exist_ok=True)
             # Use normalized table name (lowercase, underscores)
             normalized_table = config.table_name.lower().replace(" ", "_")
-            (metadata_dir / f"{normalized_table}_{config.report_name}.json").write_text("{}")
+            (metadata_dir / f"{normalized_table}_{config.report_name}.json").write_text(
+                "{}"
+            )
 
-        missing = _get_missing_reports(cache_mgr, sample_report_configs, cache_type="metadata")
+        missing = _get_missing_reports(
+            cache_mgr, sample_report_configs, cache_type="metadata"
+        )
         assert missing == []
 
     def test_no_missing_reports_data(self, temp_cache_dir, sample_report_configs):
@@ -45,16 +49,22 @@ class TestGetMissingReports:
             data_dir.mkdir(parents=True, exist_ok=True)
             # Use normalized table name (lowercase, underscores)
             normalized_table = config.table_name.lower().replace(" ", "_")
-            (data_dir / f"{normalized_table}_{config.report_name}_data.json").write_text("{}")
+            (
+                data_dir / f"{normalized_table}_{config.report_name}_data.json"
+            ).write_text("{}")
 
-        missing = _get_missing_reports(cache_mgr, sample_report_configs, cache_type="data")
+        missing = _get_missing_reports(
+            cache_mgr, sample_report_configs, cache_type="data"
+        )
         assert missing == []
 
     def test_all_missing_reports(self, temp_cache_dir, sample_report_configs):
         """Test returns all reports when none exist in cache."""
         cache_mgr = CacheManager(cache_root=temp_cache_dir)
 
-        missing = _get_missing_reports(cache_mgr, sample_report_configs, cache_type="metadata")
+        missing = _get_missing_reports(
+            cache_mgr, sample_report_configs, cache_type="metadata"
+        )
         assert missing == sample_report_configs
 
     def test_partially_missing_reports(self, temp_cache_dir, sample_report_configs):
@@ -66,9 +76,13 @@ class TestGetMissingReports:
         metadata_dir = temp_cache_dir / "report_metadata" / first_config.app_name
         metadata_dir.mkdir(parents=True)
         normalized_table = first_config.table_name.lower().replace(" ", "_")
-        (metadata_dir / f"{normalized_table}_{first_config.report_name}.json").write_text("{}")
+        (
+            metadata_dir / f"{normalized_table}_{first_config.report_name}.json"
+        ).write_text("{}")
 
-        missing = _get_missing_reports(cache_mgr, sample_report_configs, cache_type="metadata")
+        missing = _get_missing_reports(
+            cache_mgr, sample_report_configs, cache_type="metadata"
+        )
         assert first_config not in missing
         assert len(missing) == len(sample_report_configs) - 1
 
@@ -182,7 +196,9 @@ class TestRefreshMetadataCache:
         cache_mgr = CacheManager(cache_root=temp_cache_dir)
         mock_client = MagicMock()
 
-        with patch("quickbase_extract.cache_orchestration.get_report_metadata_parallel") as mock_refresh:
+        with patch(
+            "quickbase_extract.cache_orchestration.get_report_metadata_parallel"
+        ) as mock_refresh:
             caplog.set_level(logging.INFO)
             _refresh_metadata_cache(
                 client=mock_client,
@@ -200,12 +216,16 @@ class TestRefreshMetadataCache:
             assert "Metadata cache refresh needed: metadata empty" in caplog.text
             assert "Metadata cache refresh completed successfully" in caplog.text
 
-    def test_refresh_failure_raises_cache_refresh_error(self, temp_cache_dir, sample_report_configs, caplog):
+    def test_refresh_failure_raises_cache_refresh_error(
+        self, temp_cache_dir, sample_report_configs, caplog
+    ):
         """Test metadata refresh failure raises CacheRefreshError."""
         cache_mgr = CacheManager(cache_root=temp_cache_dir)
         mock_client = MagicMock()
 
-        with patch("quickbase_extract.cache_orchestration.get_report_metadata_parallel") as mock_refresh:
+        with patch(
+            "quickbase_extract.cache_orchestration.get_report_metadata_parallel"
+        ) as mock_refresh:
             mock_refresh.side_effect = Exception("API error")
 
             with pytest.raises(CacheRefreshError) as exc_info:
@@ -220,12 +240,16 @@ class TestRefreshMetadataCache:
             assert "API error" in str(exc_info.value)
             assert "Metadata cache refresh failed" in caplog.text
 
-    def test_multiple_reasons_logged(self, temp_cache_dir, sample_report_configs, caplog):
+    def test_multiple_reasons_logged(
+        self, temp_cache_dir, sample_report_configs, caplog
+    ):
         """Test multiple refresh reasons are logged correctly."""
         cache_mgr = CacheManager(cache_root=temp_cache_dir)
         mock_client = MagicMock()
 
-        with patch("quickbase_extract.cache_orchestration.get_report_metadata_parallel"):
+        with patch(
+            "quickbase_extract.cache_orchestration.get_report_metadata_parallel"
+        ):
             caplog.set_level(logging.WARNING)
             _refresh_metadata_cache(
                 client=mock_client,
@@ -245,9 +269,15 @@ class TestRefreshDataCache:
         cache_mgr = CacheManager(cache_root=temp_cache_dir)
         mock_client = MagicMock()
 
-        with patch("quickbase_extract.cache_orchestration.load_report_metadata_batch") as mock_load:
-            with patch("quickbase_extract.cache_orchestration.get_data_parallel") as mock_refresh:
-                mock_load.return_value = {config: {} for config in sample_report_configs}
+        with patch(
+            "quickbase_extract.cache_orchestration.load_report_metadata_batch"
+        ) as mock_load:
+            with patch(
+                "quickbase_extract.cache_orchestration.get_data_parallel"
+            ) as mock_refresh:
+                mock_load.return_value = {
+                    config: {} for config in sample_report_configs
+                }
 
                 caplog.set_level(logging.INFO)
                 _refresh_data_cache(
@@ -268,14 +298,22 @@ class TestRefreshDataCache:
                 assert "Data cache refresh needed: data stale" in caplog.text
                 assert "Data cache refresh completed successfully" in caplog.text
 
-    def test_refresh_failure_raises_cache_refresh_error(self, temp_cache_dir, sample_report_configs, caplog):
+    def test_refresh_failure_raises_cache_refresh_error(
+        self, temp_cache_dir, sample_report_configs, caplog
+    ):
         """Test data refresh failure raises CacheRefreshError."""
         cache_mgr = CacheManager(cache_root=temp_cache_dir)
         mock_client = MagicMock()
 
-        with patch("quickbase_extract.cache_orchestration.load_report_metadata_batch") as mock_load:
-            with patch("quickbase_extract.cache_orchestration.get_data_parallel") as mock_refresh:
-                mock_load.return_value = {config: {} for config in sample_report_configs}
+        with patch(
+            "quickbase_extract.cache_orchestration.load_report_metadata_batch"
+        ) as mock_load:
+            with patch(
+                "quickbase_extract.cache_orchestration.get_data_parallel"
+            ) as mock_refresh:
+                mock_load.return_value = {
+                    config: {} for config in sample_report_configs
+                }
                 mock_refresh.side_effect = Exception("Network timeout")
 
                 with pytest.raises(CacheRefreshError) as exc_info:
@@ -290,12 +328,16 @@ class TestRefreshDataCache:
                 assert "Network timeout" in str(exc_info.value)
                 assert "Data cache refresh failed" in caplog.text
 
-    def test_metadata_load_failure_raises_cache_refresh_error(self, temp_cache_dir, sample_report_configs):
+    def test_metadata_load_failure_raises_cache_refresh_error(
+        self, temp_cache_dir, sample_report_configs
+    ):
         """Test metadata load failure during data refresh raises CacheRefreshError."""
         cache_mgr = CacheManager(cache_root=temp_cache_dir)
         mock_client = MagicMock()
 
-        with patch("quickbase_extract.cache_orchestration.load_report_metadata_batch") as mock_load:
+        with patch(
+            "quickbase_extract.cache_orchestration.load_report_metadata_batch"
+        ) as mock_load:
             mock_load.side_effect = Exception("Metadata not found")
 
             with pytest.raises(CacheRefreshError) as exc_info:
@@ -313,7 +355,9 @@ class TestRefreshDataCache:
 class TestEnsureCacheFreshnessIntegration:
     """Integration tests for ensure_cache_freshness orchestration function."""
 
-    def test_fresh_cache_no_refresh(self, temp_cache_dir, caplog, sample_report_configs):
+    def test_fresh_cache_no_refresh(
+        self, temp_cache_dir, caplog, sample_report_configs
+    ):
         """Test no refresh occurs when caches are fresh."""
         cache_mgr = CacheManager(cache_root=temp_cache_dir)
 
@@ -323,11 +367,15 @@ class TestEnsureCacheFreshnessIntegration:
 
             metadata_dir = temp_cache_dir / "report_metadata" / config.app_name
             metadata_dir.mkdir(parents=True, exist_ok=True)
-            (metadata_dir / f"{normalized_table}_{config.report_name}.json").write_text("{}")
+            (metadata_dir / f"{normalized_table}_{config.report_name}.json").write_text(
+                "{}"
+            )
 
             data_dir = temp_cache_dir / "report_data" / config.app_name
             data_dir.mkdir(parents=True, exist_ok=True)
-            (data_dir / f"{normalized_table}_{config.report_name}_data.json").write_text("{}")
+            (
+                data_dir / f"{normalized_table}_{config.report_name}_data.json"
+            ).write_text("{}")
 
         mock_client = MagicMock()
 
@@ -345,12 +393,16 @@ class TestEnsureCacheFreshnessIntegration:
         assert "metadata age" in caplog.text
         assert "data age" in caplog.text
 
-    def test_metadata_empty_triggers_refresh(self, temp_cache_dir, sample_report_configs):
+    def test_metadata_empty_triggers_refresh(
+        self, temp_cache_dir, sample_report_configs
+    ):
         """Test empty metadata cache triggers refresh."""
         cache_mgr = CacheManager(cache_root=temp_cache_dir)
         mock_client = MagicMock()
 
-        with patch("quickbase_extract.cache_orchestration.get_report_metadata_parallel") as mock_meta:
+        with patch(
+            "quickbase_extract.cache_orchestration.get_report_metadata_parallel"
+        ) as mock_meta:
             ensure_cache_freshness(
                 client=mock_client,
                 cache_manager=cache_mgr,
@@ -376,13 +428,21 @@ class TestEnsureCacheFreshnessIntegration:
             normalized_table = config.table_name.lower().replace(" ", "_")
             metadata_dir = temp_cache_dir / "report_metadata" / config.app_name
             metadata_dir.mkdir(parents=True, exist_ok=True)
-            (metadata_dir / f"{normalized_table}_{config.report_name}.json").write_text("{}")
+            (metadata_dir / f"{normalized_table}_{config.report_name}.json").write_text(
+                "{}"
+            )
 
         mock_client = MagicMock()
 
-        with patch("quickbase_extract.cache_orchestration.load_report_metadata_batch") as mock_load:
-            with patch("quickbase_extract.cache_orchestration.get_data_parallel") as mock_data:
-                mock_load.return_value = {config: {} for config in sample_report_configs}
+        with patch(
+            "quickbase_extract.cache_orchestration.load_report_metadata_batch"
+        ) as mock_load:
+            with patch(
+                "quickbase_extract.cache_orchestration.get_data_parallel"
+            ) as mock_data:
+                mock_load.return_value = {
+                    config: {} for config in sample_report_configs
+                }
 
                 ensure_cache_freshness(
                     client=mock_client,
@@ -395,7 +455,9 @@ class TestEnsureCacheFreshnessIntegration:
 
                 mock_data.assert_called_once()
 
-    def test_stale_metadata_triggers_refresh_all_reports(self, temp_cache_dir, caplog, sample_report_configs):
+    def test_stale_metadata_triggers_refresh_all_reports(
+        self, temp_cache_dir, caplog, sample_report_configs
+    ):
         """Test stale metadata triggers refresh of all reports."""
         cache_mgr = CacheManager(cache_root=temp_cache_dir)
 
@@ -404,14 +466,18 @@ class TestEnsureCacheFreshnessIntegration:
             normalized_table = config.table_name.lower().replace(" ", "_")
             metadata_dir = temp_cache_dir / "report_metadata" / config.app_name
             metadata_dir.mkdir(parents=True, exist_ok=True)
-            metadata_file = metadata_dir / f"{normalized_table}_{config.report_name}.json"
+            metadata_file = (
+                metadata_dir / f"{normalized_table}_{config.report_name}.json"
+            )
             metadata_file.write_text("{}")
             old_time = time.time() - (10 * 24 * 3600)
             os.utime(metadata_file, (old_time, old_time))
 
         mock_client = MagicMock()
 
-        with patch("quickbase_extract.cache_orchestration.get_report_metadata_parallel") as mock_meta:
+        with patch(
+            "quickbase_extract.cache_orchestration.get_report_metadata_parallel"
+        ) as mock_meta:
             caplog.set_level(logging.WARNING)
             ensure_cache_freshness(
                 client=mock_client,
@@ -425,7 +491,9 @@ class TestEnsureCacheFreshnessIntegration:
             mock_meta.assert_called_once()
             assert "metadata stale" in caplog.text.lower()
 
-    def test_stale_data_triggers_refresh_all_data_reports(self, temp_cache_dir, caplog, sample_report_configs):
+    def test_stale_data_triggers_refresh_all_data_reports(
+        self, temp_cache_dir, caplog, sample_report_configs
+    ):
         """Test stale data triggers refresh of all data cache reports."""
         cache_mgr = CacheManager(cache_root=temp_cache_dir)
 
@@ -435,7 +503,9 @@ class TestEnsureCacheFreshnessIntegration:
 
             metadata_dir = temp_cache_dir / "report_metadata" / config.app_name
             metadata_dir.mkdir(parents=True, exist_ok=True)
-            (metadata_dir / f"{normalized_table}_{config.report_name}.json").write_text("{}")
+            (metadata_dir / f"{normalized_table}_{config.report_name}.json").write_text(
+                "{}"
+            )
 
             data_dir = temp_cache_dir / "report_data" / config.app_name
             data_dir.mkdir(parents=True, exist_ok=True)
@@ -446,9 +516,15 @@ class TestEnsureCacheFreshnessIntegration:
 
         mock_client = MagicMock()
 
-        with patch("quickbase_extract.cache_orchestration.load_report_metadata_batch") as mock_load:
-            with patch("quickbase_extract.cache_orchestration.get_data_parallel") as mock_data:
-                mock_load.return_value = {config: {} for config in sample_report_configs}
+        with patch(
+            "quickbase_extract.cache_orchestration.load_report_metadata_batch"
+        ) as mock_load:
+            with patch(
+                "quickbase_extract.cache_orchestration.get_data_parallel"
+            ) as mock_data:
+                mock_load.return_value = {
+                    config: {} for config in sample_report_configs
+                }
 
                 caplog.set_level(logging.WARNING)
                 ensure_cache_freshness(
@@ -463,7 +539,9 @@ class TestEnsureCacheFreshnessIntegration:
                 mock_data.assert_called_once()
                 assert "data stale" in caplog.text.lower()
 
-    def test_missing_metadata_reports_refreshes_only_missing(self, temp_cache_dir, caplog, sample_report_configs):
+    def test_missing_metadata_reports_refreshes_only_missing(
+        self, temp_cache_dir, caplog, sample_report_configs
+    ):
         """Test missing metadata reports triggers refresh of only those reports."""
         cache_mgr = CacheManager(cache_root=temp_cache_dir)
 
@@ -472,11 +550,15 @@ class TestEnsureCacheFreshnessIntegration:
             normalized_table = config.table_name.lower().replace(" ", "_")
             metadata_dir = temp_cache_dir / "report_metadata" / config.app_name
             metadata_dir.mkdir(parents=True, exist_ok=True)
-            (metadata_dir / f"{normalized_table}_{config.report_name}.json").write_text("{}")
+            (metadata_dir / f"{normalized_table}_{config.report_name}.json").write_text(
+                "{}"
+            )
 
         mock_client = MagicMock()
 
-        with patch("quickbase_extract.cache_orchestration.get_report_metadata_parallel") as mock_meta:
+        with patch(
+            "quickbase_extract.cache_orchestration.get_report_metadata_parallel"
+        ) as mock_meta:
             caplog.set_level(logging.WARNING)
             ensure_cache_freshness(
                 client=mock_client,
@@ -493,7 +575,9 @@ class TestEnsureCacheFreshnessIntegration:
             assert call_args[1]["report_configs"] == [sample_report_configs[-1]]
             assert "report(s) missing metadata" in caplog.text
 
-    def test_missing_data_reports_refreshes_only_missing(self, temp_cache_dir, caplog, sample_report_configs):
+    def test_missing_data_reports_refreshes_only_missing(
+        self, temp_cache_dir, caplog, sample_report_configs
+    ):
         """Test missing data reports triggers refresh of only those reports."""
         cache_mgr = CacheManager(cache_root=temp_cache_dir)
 
@@ -503,18 +587,26 @@ class TestEnsureCacheFreshnessIntegration:
 
             metadata_dir = temp_cache_dir / "report_metadata" / config.app_name
             metadata_dir.mkdir(parents=True, exist_ok=True)
-            (metadata_dir / f"{normalized_table}_{config.report_name}.json").write_text("{}")
+            (metadata_dir / f"{normalized_table}_{config.report_name}.json").write_text(
+                "{}"
+            )
 
         for config in sample_report_configs[:-1]:
             normalized_table = config.table_name.lower().replace(" ", "_")
             data_dir = temp_cache_dir / "report_data" / config.app_name
             data_dir.mkdir(parents=True, exist_ok=True)
-            (data_dir / f"{normalized_table}_{config.report_name}_data.json").write_text("{}")
+            (
+                data_dir / f"{normalized_table}_{config.report_name}_data.json"
+            ).write_text("{}")
 
         mock_client = MagicMock()
 
-        with patch("quickbase_extract.cache_orchestration.load_report_metadata_batch") as mock_load:
-            with patch("quickbase_extract.cache_orchestration.get_data_parallel") as mock_data:
+        with patch(
+            "quickbase_extract.cache_orchestration.load_report_metadata_batch"
+        ) as mock_load:
+            with patch(
+                "quickbase_extract.cache_orchestration.get_data_parallel"
+            ) as mock_data:
                 mock_load.return_value = {sample_report_configs[-1]: {}}
 
                 caplog.set_level(logging.WARNING)
@@ -533,7 +625,9 @@ class TestEnsureCacheFreshnessIntegration:
                 assert call_args[1]["report_configs"] == [sample_report_configs[-1]]
                 assert "report(s) missing data" in caplog.text
 
-    def test_force_all_refreshes_both_caches(self, temp_cache_dir, sample_report_configs):
+    def test_force_all_refreshes_both_caches(
+        self, temp_cache_dir, sample_report_configs
+    ):
         """Test force_all=True refreshes both caches even when fresh."""
         cache_mgr = CacheManager(cache_root=temp_cache_dir)
 
@@ -543,18 +637,30 @@ class TestEnsureCacheFreshnessIntegration:
 
             metadata_dir = temp_cache_dir / "report_metadata" / config.app_name
             metadata_dir.mkdir(parents=True, exist_ok=True)
-            (metadata_dir / f"{normalized_table}_{config.report_name}.json").write_text("{}")
+            (metadata_dir / f"{normalized_table}_{config.report_name}.json").write_text(
+                "{}"
+            )
 
             data_dir = temp_cache_dir / "report_data" / config.app_name
             data_dir.mkdir(parents=True, exist_ok=True)
-            (data_dir / f"{normalized_table}_{config.report_name}_data.json").write_text("{}")
+            (
+                data_dir / f"{normalized_table}_{config.report_name}_data.json"
+            ).write_text("{}")
 
         mock_client = MagicMock()
 
-        with patch("quickbase_extract.cache_orchestration.get_report_metadata_parallel") as mock_meta:
-            with patch("quickbase_extract.cache_orchestration.load_report_metadata_batch") as mock_load:
-                with patch("quickbase_extract.cache_orchestration.get_data_parallel") as mock_data:
-                    mock_load.return_value = {config: {} for config in sample_report_configs}
+        with patch(
+            "quickbase_extract.cache_orchestration.get_report_metadata_parallel"
+        ) as mock_meta:
+            with patch(
+                "quickbase_extract.cache_orchestration.load_report_metadata_batch"
+            ) as mock_load:
+                with patch(
+                    "quickbase_extract.cache_orchestration.get_data_parallel"
+                ) as mock_data:
+                    mock_load.return_value = {
+                        config: {} for config in sample_report_configs
+                    }
 
                     ensure_cache_freshness(
                         client=mock_client,
@@ -579,16 +685,24 @@ class TestEnsureCacheFreshnessIntegration:
 
             metadata_dir = temp_cache_dir / "report_metadata" / config.app_name
             metadata_dir.mkdir(parents=True, exist_ok=True)
-            (metadata_dir / f"{normalized_table}_{config.report_name}.json").write_text("{}")
+            (metadata_dir / f"{normalized_table}_{config.report_name}.json").write_text(
+                "{}"
+            )
 
             data_dir = temp_cache_dir / "report_data" / config.app_name
             data_dir.mkdir(parents=True, exist_ok=True)
-            (data_dir / f"{normalized_table}_{config.report_name}_data.json").write_text("{}")
+            (
+                data_dir / f"{normalized_table}_{config.report_name}_data.json"
+            ).write_text("{}")
 
         mock_client = MagicMock()
 
-        with patch("quickbase_extract.cache_orchestration.get_report_metadata_parallel") as mock_meta:
-            with patch("quickbase_extract.cache_orchestration.get_data_parallel") as mock_data:
+        with patch(
+            "quickbase_extract.cache_orchestration.get_report_metadata_parallel"
+        ) as mock_meta:
+            with patch(
+                "quickbase_extract.cache_orchestration.get_data_parallel"
+            ) as mock_data:
                 ensure_cache_freshness(
                     client=mock_client,
                     cache_manager=cache_mgr,
@@ -612,17 +726,27 @@ class TestEnsureCacheFreshnessIntegration:
 
             metadata_dir = temp_cache_dir / "report_metadata" / config.app_name
             metadata_dir.mkdir(parents=True, exist_ok=True)
-            (metadata_dir / f"{normalized_table}_{config.report_name}.json").write_text("{}")
+            (metadata_dir / f"{normalized_table}_{config.report_name}.json").write_text(
+                "{}"
+            )
 
             data_dir = temp_cache_dir / "report_data" / config.app_name
             data_dir.mkdir(parents=True, exist_ok=True)
-            (data_dir / f"{normalized_table}_{config.report_name}_data.json").write_text("{}")
+            (
+                data_dir / f"{normalized_table}_{config.report_name}_data.json"
+            ).write_text("{}")
 
         mock_client = MagicMock()
 
-        with patch("quickbase_extract.cache_orchestration.load_report_metadata_batch") as mock_load:
-            with patch("quickbase_extract.cache_orchestration.get_data_parallel") as mock_data:
-                mock_load.return_value = {config: {} for config in sample_report_configs}
+        with patch(
+            "quickbase_extract.cache_orchestration.load_report_metadata_batch"
+        ) as mock_load:
+            with patch(
+                "quickbase_extract.cache_orchestration.get_data_parallel"
+            ) as mock_data:
+                mock_load.return_value = {
+                    config: {} for config in sample_report_configs
+                }
 
                 ensure_cache_freshness(
                     client=mock_client,
@@ -636,7 +760,9 @@ class TestEnsureCacheFreshnessIntegration:
 
                 mock_data.assert_called_once()
 
-    def test_force_all_overrides_individual_flags(self, temp_cache_dir, sample_report_configs):
+    def test_force_all_overrides_individual_flags(
+        self, temp_cache_dir, sample_report_configs
+    ):
         """Test force_all=True overrides individual force flags."""
         cache_mgr = CacheManager(cache_root=temp_cache_dir)
 
@@ -644,20 +770,34 @@ class TestEnsureCacheFreshnessIntegration:
         for config in sample_report_configs:
             normalized_table = config.table_name.lower().replace(" ", "_")
 
-            metadata_dir = temp_cache_dir = temp_cache_dir / "report_metadata" / config.app_name
+            metadata_dir = temp_cache_dir = (
+                temp_cache_dir / "report_metadata" / config.app_name
+            )
             metadata_dir.mkdir(parents=True, exist_ok=True)
-            (metadata_dir / f"{normalized_table}_{config.report_name}.json").write_text("{}")
+            (metadata_dir / f"{normalized_table}_{config.report_name}.json").write_text(
+                "{}"
+            )
 
             data_dir = temp_cache_dir / "report_data" / config.app_name
             data_dir.mkdir(parents=True, exist_ok=True)
-            (data_dir / f"{normalized_table}_{config.report_name}_data.json").write_text("{}")
+            (
+                data_dir / f"{normalized_table}_{config.report_name}_data.json"
+            ).write_text("{}")
 
         mock_client = MagicMock()
 
-        with patch("quickbase_extract.cache_orchestration.get_report_metadata_parallel") as mock_meta:
-            with patch("quickbase_extract.cache_orchestration.load_report_metadata_batch") as mock_load:
-                with patch("quickbase_extract.cache_orchestration.get_data_parallel") as mock_data:
-                    mock_load.return_value = {config: {} for config in sample_report_configs}
+        with patch(
+            "quickbase_extract.cache_orchestration.get_report_metadata_parallel"
+        ) as mock_meta:
+            with patch(
+                "quickbase_extract.cache_orchestration.load_report_metadata_batch"
+            ) as mock_load:
+                with patch(
+                    "quickbase_extract.cache_orchestration.get_data_parallel"
+                ) as mock_data:
+                    mock_load.return_value = {
+                        config: {} for config in sample_report_configs
+                    }
 
                     # force_all=True should refresh both, even with force_metadata=False
                     ensure_cache_freshness(
@@ -675,7 +815,9 @@ class TestEnsureCacheFreshnessIntegration:
                     mock_meta.assert_called_once()
                     mock_data.assert_called_once()
 
-    def test_data_caching_disabled_when_no_configs(self, temp_cache_dir, caplog, sample_report_configs):
+    def test_data_caching_disabled_when_no_configs(
+        self, temp_cache_dir, caplog, sample_report_configs
+    ):
         """Test data caching is disabled when report_configs_to_cache is None."""
         cache_mgr = CacheManager(cache_root=temp_cache_dir)
 
@@ -684,11 +826,15 @@ class TestEnsureCacheFreshnessIntegration:
             normalized_table = config.table_name.lower().replace(" ", "_")
             metadata_dir = temp_cache_dir / "report_metadata" / config.app_name
             metadata_dir.mkdir(parents=True, exist_ok=True)
-            (metadata_dir / f"{normalized_table}_{config.report_name}.json").write_text("{}")
+            (metadata_dir / f"{normalized_table}_{config.report_name}.json").write_text(
+                "{}"
+            )
 
         mock_client = MagicMock()
 
-        with patch("quickbase_extract.cache_orchestration.get_data_parallel") as mock_data:
+        with patch(
+            "quickbase_extract.cache_orchestration.get_data_parallel"
+        ) as mock_data:
             caplog.set_level(logging.DEBUG)
             ensure_cache_freshness(
                 client=mock_client,
@@ -711,13 +857,21 @@ class TestEnsureCacheFreshnessIntegration:
             normalized_table = config.table_name.lower().replace(" ", "_")
             metadata_dir = temp_cache_dir / "report_metadata" / config.app_name
             metadata_dir.mkdir(parents=True, exist_ok=True)
-            (metadata_dir / f"{normalized_table}_{config.report_name}.json").write_text("{}")
+            (metadata_dir / f"{normalized_table}_{config.report_name}.json").write_text(
+                "{}"
+            )
 
         mock_client = MagicMock()
 
-        with patch("quickbase_extract.cache_orchestration.load_report_metadata_batch") as mock_load:
-            with patch("quickbase_extract.cache_orchestration.get_data_parallel") as mock_data:
-                mock_load.return_value = {config: {} for config in sample_report_configs}
+        with patch(
+            "quickbase_extract.cache_orchestration.load_report_metadata_batch"
+        ) as mock_load:
+            with patch(
+                "quickbase_extract.cache_orchestration.get_data_parallel"
+            ) as mock_data:
+                mock_load.return_value = {
+                    config: {} for config in sample_report_configs
+                }
 
                 ensure_cache_freshness(
                     client=mock_client,
@@ -735,7 +889,9 @@ class TestEnsureCacheFreshnessIntegration:
                 call_args = mock_data.call_args
                 assert call_args[1]["report_configs"] == sample_report_configs
 
-    def test_cache_all_data_overrides_subset(self, temp_cache_dir, sample_report_configs):
+    def test_cache_all_data_overrides_subset(
+        self, temp_cache_dir, sample_report_configs
+    ):
         """Test cache_all_data=True overrides report_configs_to_cache subset."""
         cache_mgr = CacheManager(cache_root=temp_cache_dir)
 
@@ -744,13 +900,21 @@ class TestEnsureCacheFreshnessIntegration:
             normalized_table = config.table_name.lower().replace(" ", "_")
             metadata_dir = temp_cache_dir / "report_metadata" / config.app_name
             metadata_dir.mkdir(parents=True, exist_ok=True)
-            (metadata_dir / f"{normalized_table}_{config.report_name}.json").write_text("{}")
+            (metadata_dir / f"{normalized_table}_{config.report_name}.json").write_text(
+                "{}"
+            )
 
         mock_client = MagicMock()
 
-        with patch("quickbase_extract.cache_orchestration.load_report_metadata_batch") as mock_load:
-            with patch("quickbase_extract.cache_orchestration.get_data_parallel") as mock_data:
-                mock_load.return_value = {config: {} for config in sample_report_configs}
+        with patch(
+            "quickbase_extract.cache_orchestration.load_report_metadata_batch"
+        ) as mock_load:
+            with patch(
+                "quickbase_extract.cache_orchestration.get_data_parallel"
+            ) as mock_data:
+                mock_load.return_value = {
+                    config: {} for config in sample_report_configs
+                }
 
                 ensure_cache_freshness(
                     client=mock_client,
@@ -768,12 +932,16 @@ class TestEnsureCacheFreshnessIntegration:
                 call_args = mock_data.call_args
                 assert call_args[1]["report_configs"] == sample_report_configs
 
-    def test_metadata_refresh_failure_raises_error(self, temp_cache_dir, caplog, sample_report_configs):
+    def test_metadata_refresh_failure_raises_error(
+        self, temp_cache_dir, caplog, sample_report_configs
+    ):
         """Test metadata refresh failure raises CacheRefreshError."""
         cache_mgr = CacheManager(cache_root=temp_cache_dir)
         mock_client = MagicMock()
 
-        with patch("quickbase_extract.cache_orchestration.get_report_metadata_parallel") as mock_meta:
+        with patch(
+            "quickbase_extract.cache_orchestration.get_report_metadata_parallel"
+        ) as mock_meta:
             mock_meta.side_effect = Exception("API timeout")
 
             with pytest.raises(CacheRefreshError) as exc_info:
@@ -790,7 +958,9 @@ class TestEnsureCacheFreshnessIntegration:
             assert "API timeout" in str(exc_info.value)
             assert "Metadata cache refresh failed" in caplog.text
 
-    def test_data_refresh_failure_raises_error(self, temp_cache_dir, caplog, sample_report_configs):
+    def test_data_refresh_failure_raises_error(
+        self, temp_cache_dir, caplog, sample_report_configs
+    ):
         """Test data refresh failure raises CacheRefreshError."""
         cache_mgr = CacheManager(cache_root=temp_cache_dir)
 
@@ -799,13 +969,21 @@ class TestEnsureCacheFreshnessIntegration:
             normalized_table = config.table_name.lower().replace(" ", "_")
             metadata_dir = temp_cache_dir / "report_metadata" / config.app_name
             metadata_dir.mkdir(parents=True, exist_ok=True)
-            (metadata_dir / f"{normalized_table}_{config.report_name}.json").write_text("{}")
+            (metadata_dir / f"{normalized_table}_{config.report_name}.json").write_text(
+                "{}"
+            )
 
         mock_client = MagicMock()
 
-        with patch("quickbase_extract.cache_orchestration.load_report_metadata_batch") as mock_load:
-            with patch("quickbase_extract.cache_orchestration.get_data_parallel") as mock_data:
-                mock_load.return_value = {config: {} for config in sample_report_configs}
+        with patch(
+            "quickbase_extract.cache_orchestration.load_report_metadata_batch"
+        ) as mock_load:
+            with patch(
+                "quickbase_extract.cache_orchestration.get_data_parallel"
+            ) as mock_data:
+                mock_load.return_value = {
+                    config: {} for config in sample_report_configs
+                }
                 mock_data.side_effect = Exception("Network error")
 
                 with pytest.raises(CacheRefreshError) as exc_info:
@@ -822,13 +1000,19 @@ class TestEnsureCacheFreshnessIntegration:
                 assert "Network error" in str(exc_info.value)
                 assert "Data cache refresh failed" in caplog.text
 
-    def test_metadata_failure_prevents_data_refresh(self, temp_cache_dir, sample_report_configs):
+    def test_metadata_failure_prevents_data_refresh(
+        self, temp_cache_dir, sample_report_configs
+    ):
         """Test metadata refresh failure prevents data refresh from being attempted."""
         cache_mgr = CacheManager(cache_root=temp_cache_dir)
         mock_client = MagicMock()
 
-        with patch("quickbase_extract.cache_orchestration.get_report_metadata_parallel") as mock_meta:
-            with patch("quickbase_extract.cache_orchestration.get_data_parallel") as mock_data:
+        with patch(
+            "quickbase_extract.cache_orchestration.get_report_metadata_parallel"
+        ) as mock_meta:
+            with patch(
+                "quickbase_extract.cache_orchestration.get_data_parallel"
+            ) as mock_data:
                 mock_meta.side_effect = Exception("Metadata failed")
 
                 with pytest.raises(CacheRefreshError):
@@ -844,7 +1028,9 @@ class TestEnsureCacheFreshnessIntegration:
                 # Data refresh should NOT be attempted
                 mock_data.assert_not_called()
 
-    def test_both_caches_stale_refreshes_both(self, temp_cache_dir, sample_report_configs):
+    def test_both_caches_stale_refreshes_both(
+        self, temp_cache_dir, sample_report_configs
+    ):
         """Test both stale caches are refreshed."""
         cache_mgr = CacheManager(cache_root=temp_cache_dir)
 
@@ -854,7 +1040,9 @@ class TestEnsureCacheFreshnessIntegration:
 
             metadata_dir = temp_cache_dir / "report_metadata" / config.app_name
             metadata_dir.mkdir(parents=True, exist_ok=True)
-            metadata_file = metadata_dir / f"{normalized_table}_{config.report_name}.json"
+            metadata_file = (
+                metadata_dir / f"{normalized_table}_{config.report_name}.json"
+            )
             metadata_file.write_text("{}")
             old_time = time.time() - (10 * 24 * 3600)
             os.utime(metadata_file, (old_time, old_time))
@@ -868,10 +1056,18 @@ class TestEnsureCacheFreshnessIntegration:
 
         mock_client = MagicMock()
 
-        with patch("quickbase_extract.cache_orchestration.get_report_metadata_parallel") as mock_meta:
-            with patch("quickbase_extract.cache_orchestration.load_report_metadata_batch") as mock_load:
-                with patch("quickbase_extract.cache_orchestration.get_data_parallel") as mock_data:
-                    mock_load.return_value = {config: {} for config in sample_report_configs}
+        with patch(
+            "quickbase_extract.cache_orchestration.get_report_metadata_parallel"
+        ) as mock_meta:
+            with patch(
+                "quickbase_extract.cache_orchestration.load_report_metadata_batch"
+            ) as mock_load:
+                with patch(
+                    "quickbase_extract.cache_orchestration.get_data_parallel"
+                ) as mock_data:
+                    mock_load.return_value = {
+                        config: {} for config in sample_report_configs
+                    }
 
                     ensure_cache_freshness(
                         client=mock_client,
@@ -885,7 +1081,9 @@ class TestEnsureCacheFreshnessIntegration:
                     mock_meta.assert_called_once()
                     mock_data.assert_called_once()
 
-    def test_environment_variable_thresholds(self, temp_cache_dir, monkeypatch, sample_report_configs):
+    def test_environment_variable_thresholds(
+        self, temp_cache_dir, monkeypatch, sample_report_configs
+    ):
         """Test staleness thresholds can be set via environment variables."""
         monkeypatch.setenv("METADATA_STALE_HOURS", "48")
         monkeypatch.setenv("DATA_STALE_HOURS", "12")
@@ -897,14 +1095,18 @@ class TestEnsureCacheFreshnessIntegration:
             normalized_table = config.table_name.lower().replace(" ", "_")
             metadata_dir = temp_cache_dir / "report_metadata" / config.app_name
             metadata_dir.mkdir(parents=True, exist_ok=True)
-            metadata_file = metadata_dir / f"{normalized_table}_{config.report_name}.json"
+            metadata_file = (
+                metadata_dir / f"{normalized_table}_{config.report_name}.json"
+            )
             metadata_file.write_text("{}")
             old_time = time.time() - (3 * 24 * 3600)  # 3 days old
             os.utime(metadata_file, (old_time, old_time))
 
         mock_client = MagicMock()
 
-        with patch("quickbase_extract.cache_orchestration.get_report_metadata_parallel") as mock_meta:
+        with patch(
+            "quickbase_extract.cache_orchestration.get_report_metadata_parallel"
+        ) as mock_meta:
             ensure_cache_freshness(
                 client=mock_client,
                 cache_manager=cache_mgr,
@@ -929,7 +1131,9 @@ class TestEnsureCacheFreshnessIntegration:
             normalized_table = config.table_name.lower().replace(" ", "_")
             metadata_dir = temp_cache_dir / "report_metadata" / config.app_name
             metadata_dir.mkdir(parents=True, exist_ok=True)
-            (metadata_dir / f"{normalized_table}_{config.report_name}.json").write_text("{}")
+            (metadata_dir / f"{normalized_table}_{config.report_name}.json").write_text(
+                "{}"
+            )
 
         mock_client = MagicMock()
 
@@ -944,4 +1148,5 @@ class TestEnsureCacheFreshnessIntegration:
         )
 
         # Should be fresh because parameter overrides env var
+        assert "Cache is fresh" in caplog.text
         assert "Cache is fresh" in caplog.text

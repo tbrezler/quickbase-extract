@@ -855,7 +855,6 @@ s3://mit-bio-quickbase/my_project/dev/cache/report_metadata/...
 | `CACHE_BUCKET` | S3 bucket for Lambda cache | - |
 | `METADATA_STALE_HOURS` | Threshold (hours) for metadata cache staleness | `168` (7 days) |
 | `DATA_STALE_HOURS` | Threshold (hours) for data cache staleness | `24` (1 day) |
-| `FORCE_CACHE_REFRESH` | If set to "true", forces cache refresh on next sync | - |
 
 ### Custom Cache Location
 
@@ -1238,7 +1237,6 @@ Checks metadata and data caches independently. Refreshes only the caches that ar
 **Environment Variables:**
 - `METADATA_STALE_HOURS`: Override default metadata staleness threshold (in hours)
 - `DATA_STALE_HOURS`: Override default data staleness threshold (in hours)
-- `FORCE_ALL_CACHE_REFRESH`: Set to "true" to force refresh regardless of cache state
 
 **Returns:** None
 
@@ -2081,43 +2079,6 @@ fields = info["fields"]
 
 ---
 
-### Issue: "FORCE_CACHE_REFRESH not working"
-
-**Symptom:** Set `FORCE_CACHE_REFRESH=true` but cache still not refreshing.
-
-**Cause:** Environment variable case-sensitive or not set correctly.
-
-**Solution:**
-
-1. **Verify env var is set (case-sensitive):**
-   ```bash
-   # Must be exactly this (uppercase)
-   export FORCE_ALL_CACHE_REFRESH=true
-
-   # Not these (wrong):
-   export force_cache_refresh=true
-   export Force_Cache_Refresh=true
-   ```
-
-2. **Verify it's being read:**
-   ```python
-   import os
-   print(os.environ.get("FORCE_ALL_CACHE_REFRESH"))  # Should print "true"
-   ```
-
-3. **Use programmatic force instead:**
-   ```python
-   ensure_cache_freshness(
-       client=client,
-       cache_manager=cache_mgr,
-       report_configs_all=get_all_reports(),
-       report_configs_to_cache=get_reports_to_cache(),
-       force_all=True  # Programmatic force (always works)
-   )
-   ```
-
----
-
 ### Issue: Data fetch returns empty or different results
 
 **Symptom:** `get_data()` returns empty list or fewer records than expected.
@@ -2423,23 +2384,6 @@ ensure_cache_freshness(
     report_configs_all=get_all_reports(),
     report_configs_to_cache=get_reports_to_cache(),
     force_data=True  # Skip data age checks
-)
-```
-
-#### Environment Variable Force
-
-Set `FORCE_ALL_CACHE_REFRESH=true` before invoking:
-
-```bash
-# In Lambda environment variables or shell
-export FORCE_ALL_CACHE_REFRESH=true
-
-# Then call normally (will force refresh automatically)
-ensure_cache_freshness(
-    client=client,
-    cache_manager=cache_mgr,
-    report_configs_all=get_all_reports(),
-    report_configs_to_cache=get_reports_to_cache()
 )
 ```
 

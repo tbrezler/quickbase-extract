@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-04-25
+
+### Fixed
+
+- `sync_from_s3()` now preserves S3 `LastModified` timestamps via `os.utime()`, so `get_cache_age_hours()` returns accurate ages after S3 restore (previously always returned ~0 on Lambda cold start)
+- Renamed misleading `should_sync` variable to `already_synced` in `sync_from_s3_once()` for clarity
+
+### Removed
+
+- `FORCE_CACHE_REFRESH` environment variable support from `sync_from_s3_once()` — use `force=True` parameter instead
+
 ## [0.2.0] - 2026-04-22
 
 ### Added
