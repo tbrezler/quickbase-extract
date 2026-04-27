@@ -28,12 +28,7 @@ import logging
 from importlib.metadata import version
 
 # API operations with error handling
-from quickbase_extract.api_handlers import (
-    QuickbaseOperationError,
-    handle_delete,
-    handle_query,
-    handle_upsert,
-)
+from quickbase_extract.api_handlers import QuickbaseOperationError, handle_delete, handle_query, handle_upsert
 
 # Cache management
 from quickbase_extract.cache_manager import CacheManager
@@ -42,18 +37,13 @@ from quickbase_extract.cache_manager import CacheManager
 from quickbase_extract.cache_orchestration import ensure_cache_freshness
 
 # Cache sync
-from quickbase_extract.cache_sync import is_cache_synced, sync_from_s3_once
+from quickbase_extract.cache_sync import complete_cache_refresh, is_cache_synced, sync_from_s3_once
 
 # Config
 from quickbase_extract.config import ReportConfig
 
 # Report data retrieval
-from quickbase_extract.report_data import (
-    get_data,
-    get_data_parallel,
-    load_data,
-    load_data_batch,
-)
+from quickbase_extract.report_data import get_data, get_data_parallel, load_data, load_data_batch
 
 # Report metadata
 from quickbase_extract.report_metadata import (
@@ -77,6 +67,7 @@ __all__ = [
     # Cache management
     "CacheManager",
     "ensure_cache_freshness",
+    "complete_cache_refresh",
     "sync_from_s3_once",
     "is_cache_synced",
     # Config

@@ -250,9 +250,7 @@ class TestCacheManagerS3Sync:
 
             mock_boto.assert_not_called()
 
-    def test_sync_from_s3_requires_cache_bucket(
-        self, temp_cache_dir, monkeypatch, caplog
-    ):
+    def test_sync_from_s3_requires_cache_bucket(self, temp_cache_dir, monkeypatch, caplog):
         """Test that sync_from_s3 skips if CACHE_BUCKET not set."""
         monkeypatch.setenv("AWS_LAMBDA_FUNCTION_NAME", "test-function")
         monkeypatch.delenv("CACHE_BUCKET", raising=False)
@@ -312,9 +310,7 @@ class TestCacheManagerS3Sync:
 
             assert mock_s3.download_file.call_count == 2
 
-    def test_sync_from_s3_creates_directories(
-        self, temp_cache_dir, monkeypatch, caplog
-    ):
+    def test_sync_from_s3_creates_directories(self, temp_cache_dir, monkeypatch, caplog):
         """Test that sync_from_s3 creates necessary directories."""
         monkeypatch.setenv("AWS_LAMBDA_FUNCTION_NAME", "test-function")
         monkeypatch.setenv("CACHE_BUCKET", "my-bucket")

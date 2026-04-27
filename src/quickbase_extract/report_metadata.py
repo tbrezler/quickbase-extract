@@ -54,15 +54,11 @@ def fetch_report_metadata_api(
 
     if not report_matches:
         available = [r["name"] for r in reports]
-        raise ValueError(
-            f"Report '{report_name}' not found in table '{table_name}'. Available reports: {available}"
-        )
+        raise ValueError(f"Report '{report_name}' not found in table '{table_name}'. Available reports: {available}")
 
     # Warn if multiple matches (unlikely but possible)
     if len(report_matches) > 1:
-        logger.warning(
-            f"Multiple reports match '{report_name}' in table '{table_name}', using first match"
-        )
+        logger.warning(f"Multiple reports match '{report_name}' in table '{table_name}', using first match")
 
     report_id = report_matches[0]["id"]
     report = client.get_report(table_id, report_id=report_id)
@@ -72,9 +68,7 @@ def fetch_report_metadata_api(
     fields = query.get("fields", [])
 
     # Filter field_label to only include fields used in this report
-    filtered_field_label = {
-        name: int(fid) for name, fid in field_label.items() if int(fid) in fields
-    }
+    filtered_field_label = {name: int(fid) for name, fid in field_label.items() if int(fid) in fields}
 
     return {
         "table_id": table_id,
@@ -123,9 +117,7 @@ def get_report_metadata(
         ... )
         >>> get_report_metadata(qb_client, cache_manager, config)
     """
-    logger.info(
-        f"Fetching {report_config.app_id}: {report_config.table_name} - {report_config.report_name}"
-    )
+    logger.info(f"Fetching {report_config.app_id}: {report_config.table_name} - {report_config.report_name}")
 
     # Fetch from API
     data = fetch_report_metadata_api(
@@ -156,9 +148,7 @@ def get_report_metadata(
             report_md["report_name"],
         )
         cache_manager.write_file(md_path, json.dumps(report_md, indent=4))
-        logger.info(
-            f"{report_config.app_id}/{report_config.table_name}_{report_config.report_name}.json cached"
-        )
+        logger.info(f"{report_config.app_id}/{report_config.table_name}_{report_config.report_name}.json cached")
     else:
         logger.info(
             f"{report_config.app_id}: {report_config.table_name} - "
@@ -214,9 +204,7 @@ def get_report_metadata_parallel(
         return
 
     total_reports = len(report_configs)
-    logger.info(
-        f"Starting parallel fetch for {total_reports} reports with {max_workers} workers"
-    )
+    logger.info(f"Starting parallel fetch for {total_reports} reports with {max_workers} workers")
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all tasks
@@ -244,9 +232,7 @@ def get_report_metadata_parallel(
                 )
                 raise
 
-    logger.info(
-        f"Successfully completed parallel fetch for all {total_reports} reports"
-    )
+    logger.info(f"Successfully completed parallel fetch for all {total_reports} reports")
 
 
 def load_report_metadata(

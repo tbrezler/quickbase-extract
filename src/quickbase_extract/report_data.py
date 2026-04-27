@@ -80,9 +80,7 @@ def _replace_ask_placeholders(
     return modified_filter
 
 
-def _flatten_and_relabel_records(
-    records: list[dict], field_label: dict, fields: list[int]
-) -> list[dict]:
+def _flatten_and_relabel_records(records: list[dict], field_label: dict, fields: list[int]) -> list[dict]:
     """Transform Quickbase records to flat dicts with field labels as keys.
 
     Args:
@@ -174,9 +172,7 @@ def get_data(
     report_filter = info["filter"]
     if ask_values is not None and ask_values != {}:
         original_filter = report_filter
-        report_filter = _replace_ask_placeholders(
-            report_filter, ask_values, report_config
-        )
+        report_filter = _replace_ask_placeholders(report_filter, ask_values, report_config)
         logger.debug(
             f"{report_config.app_id}/{report_config.table_name}/"
             f"{report_config.report_name} filter modified: {original_filter} -> "
@@ -278,9 +274,7 @@ def get_data_parallel(
         return {}
 
     total_reports = len(report_configs)
-    logger.info(
-        f"Starting parallel fetch for {total_reports} reports with {max_workers} workers"
-    )
+    logger.info(f"Starting parallel fetch for {total_reports} reports with {max_workers} workers")
 
     results = {}
 
@@ -306,14 +300,10 @@ def get_data_parallel(
                 data = future.result()  # Individual fetches are logged in get_data
                 results[config] = data
             except Exception as e:
-                logger.error(
-                    f"Failed to fetch {config.app_id}/{config.table_name}/{config.report_name}: {e}"
-                )
+                logger.error(f"Failed to fetch {config.app_id}/{config.table_name}/{config.report_name}: {e}")
                 raise
 
-    logger.info(
-        f"Successfully completed parallel fetch for all {total_reports} reports"
-    )
+    logger.info(f"Successfully completed parallel fetch for all {total_reports} reports")
     return results
 
 
@@ -350,9 +340,7 @@ def load_data(
     data_path = cache_manager.get_data_path(app_name, table_name, report_name)
 
     if not data_path.exists():
-        raise FileNotFoundError(
-            f"Cached data not found for {report_config}. Expected: {data_path}"
-        )
+        raise FileNotFoundError(f"Cached data not found for {report_config}. Expected: {data_path}")
 
     return json.loads(cache_manager.read_file(data_path))
 

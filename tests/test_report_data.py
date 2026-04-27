@@ -88,17 +88,13 @@ class TestReplaceAskPlaceholders:
 
         result = _replace_ask_placeholders(filter_str, ask_values, config)
 
-        assert result == (
-            "({'15'.EX.'Pending'}AND({'41'.EX.'urgent'}OR{'40'.EX.'urgent'}))"
-        )
+        assert result == ("({'15'.EX.'Pending'}AND({'41'.EX.'urgent'}OR{'40'.EX.'urgent'}))")
 
 
 class TestExtractReportNames:
     """Tests for _extract_report_names helper function."""
 
-    def test_extract_names_from_metadata(
-        self, sample_report_metadata, sample_report_configs
-    ):
+    def test_extract_names_from_metadata(self, sample_report_metadata, sample_report_configs):
         """Test extracting report names from metadata."""
         config = sample_report_configs[0]
         info = sample_report_metadata[config]
@@ -109,9 +105,7 @@ class TestExtractReportNames:
         assert table_name == "test_table"
         assert report_name == "python"
 
-    def test_extract_names_returns_tuple(
-        self, sample_report_metadata, sample_report_configs
-    ):
+    def test_extract_names_returns_tuple(self, sample_report_metadata, sample_report_configs):
         """Test that extract_report_names returns a tuple."""
         config = sample_report_configs[0]
         info = sample_report_metadata[config]
@@ -160,9 +154,7 @@ class TestGetData:
         assert data[0]["Name"] == "Alice"
         assert data[1]["Name"] == "Bob"
 
-    def test_get_data_with_cache(
-        self, temp_cache_dir, mock_qb_api, sample_report_configs
-    ):
+    def test_get_data_with_cache(self, temp_cache_dir, mock_qb_api, sample_report_configs):
         """Test getting data and caching it."""
         cache_mgr = CacheManager(cache_root=temp_cache_dir)
         config = sample_report_configs[0]
@@ -188,18 +180,14 @@ class TestGetData:
         )
 
         # Verify data was cached
-        data_path = cache_mgr.get_data_path(
-            config.app_name, config.table_name, config.report_name
-        )
+        data_path = cache_mgr.get_data_path(config.app_name, config.table_name, config.report_name)
         assert data_path.exists()
 
         # Verify cached content matches
         cached_data = json.loads(data_path.read_text())
         assert cached_data == data
 
-    def test_data_transformation(
-        self, temp_cache_dir, mock_qb_api, sample_report_configs
-    ):
+    def test_data_transformation(self, temp_cache_dir, mock_qb_api, sample_report_configs):
         """Test that data is transformed correctly."""
         cache_mgr = CacheManager(cache_root=temp_cache_dir)
         config = sample_report_configs[0]
@@ -233,9 +221,7 @@ class TestGetData:
         assert "3" not in data[0]
         assert "6" not in data[0]
 
-    def test_get_data_unknown_report(
-        self, temp_cache_dir, mock_qb_api, sample_report_configs
-    ):
+    def test_get_data_unknown_report(self, temp_cache_dir, mock_qb_api, sample_report_configs):
         """Test error when report config not in metadata."""
         cache_mgr = CacheManager(cache_root=temp_cache_dir)
         config = sample_report_configs[0]
@@ -261,9 +247,7 @@ class TestGetData:
                 metadata,
             )
 
-    def test_get_data_with_ask_values(
-        self, temp_cache_dir, mock_qb_api, sample_report_configs
-    ):
+    def test_get_data_with_ask_values(self, temp_cache_dir, mock_qb_api, sample_report_configs):
         """Test get_data with ask placeholder replacement."""
         cache_mgr = CacheManager(cache_root=temp_cache_dir)
         config = sample_report_configs[0]
@@ -302,9 +286,7 @@ class TestGetData:
 
         assert len(data) == 2
 
-    def test_get_data_logs_result(
-        self, temp_cache_dir, mock_qb_api, sample_report_configs, caplog
-    ):
+    def test_get_data_logs_result(self, temp_cache_dir, mock_qb_api, sample_report_configs, caplog):
         """Test that get_data logs result."""
         cache_mgr = CacheManager(cache_root=temp_cache_dir)
         config = sample_report_configs[0]
@@ -334,9 +316,7 @@ class TestGetData:
 class TestGetDataParallel:
     """Tests for get_data_parallel function."""
 
-    def test_get_multiple_reports_parallel(
-        self, temp_cache_dir, mock_qb_api, sample_report_configs
-    ):
+    def test_get_multiple_reports_parallel(self, temp_cache_dir, mock_qb_api, sample_report_configs):
         """Test fetching multiple reports in parallel."""
         cache_mgr = CacheManager(cache_root=temp_cache_dir)
 
@@ -366,9 +346,7 @@ class TestGetDataParallel:
         assert sample_report_configs[1] in results
         assert len(results[sample_report_configs[0]]) == 2
 
-    def test_parallel_fail_fast_on_error(
-        self, temp_cache_dir, mock_qb_api, sample_report_configs
-    ):
+    def test_parallel_fail_fast_on_error(self, temp_cache_dir, mock_qb_api, sample_report_configs):
         """Test that parallel execution fails fast on first error."""
         cache_mgr = CacheManager(cache_root=temp_cache_dir)
 
@@ -394,9 +372,7 @@ class TestGetDataParallel:
                 metadata,
             )
 
-    def test_parallel_with_custom_max_workers(
-        self, temp_cache_dir, mock_qb_api, sample_report_configs
-    ):
+    def test_parallel_with_custom_max_workers(self, temp_cache_dir, mock_qb_api, sample_report_configs):
         """Test parallel execution with custom max_workers."""
         cache_mgr = CacheManager(cache_root=temp_cache_dir)
 
@@ -436,9 +412,7 @@ class TestGetDataParallel:
         assert results == {}
         assert "No report config provided" in caplog.text
 
-    def test_parallel_with_per_report_ask_values(
-        self, temp_cache_dir, mock_qb_api, sample_report_configs
-    ):
+    def test_parallel_with_per_report_ask_values(self, temp_cache_dir, mock_qb_api, sample_report_configs):
         """Test parallel execution with per-report ask values."""
         cache_mgr = CacheManager(cache_root=temp_cache_dir)
 
@@ -516,9 +490,7 @@ class TestLoadData:
         assert len(loaded) == 2
         assert loaded[0]["Name"] == "Alice"
 
-    def test_load_nonexistent_data(
-        self, temp_cache_dir, mock_qb_api, sample_report_configs
-    ):
+    def test_load_nonexistent_data(self, temp_cache_dir, mock_qb_api, sample_report_configs):
         """Test error when data not cached."""
         cache_mgr = CacheManager(cache_root=temp_cache_dir)
         config = sample_report_configs[0]
@@ -555,9 +527,7 @@ class TestLoadData:
 class TestLoadDataBatch:
     """Tests for load_data_batch function."""
 
-    def test_load_multiple_data(
-        self, temp_cache_dir, mock_qb_api, sample_report_configs
-    ):
+    def test_load_multiple_data(self, temp_cache_dir, mock_qb_api, sample_report_configs):
         """Test loading multiple data files."""
         cache_mgr = CacheManager(cache_root=temp_cache_dir)
 
@@ -597,9 +567,7 @@ class TestLoadDataBatch:
         result = load_data_batch(cache_mgr, [], {})
         assert result == {}
 
-    def test_load_batch_missing_file_raises_error(
-        self, temp_cache_dir, mock_qb_api, sample_report_configs
-    ):
+    def test_load_batch_missing_file_raises_error(self, temp_cache_dir, mock_qb_api, sample_report_configs):
         """Test that missing file raises error."""
         cache_mgr = CacheManager(cache_root=temp_cache_dir)
         config = sample_report_configs[0]
@@ -618,9 +586,7 @@ class TestLoadDataBatch:
         with pytest.raises(FileNotFoundError):
             load_data_batch(cache_mgr, [config], metadata)
 
-    def test_load_batch_keyed_by_report_config(
-        self, temp_cache_dir, mock_qb_api, sample_report_configs
-    ):
+    def test_load_batch_keyed_by_report_config(self, temp_cache_dir, mock_qb_api, sample_report_configs):
         """Test that returned data is keyed by ReportConfig."""
         cache_mgr = CacheManager(cache_root=temp_cache_dir)
 

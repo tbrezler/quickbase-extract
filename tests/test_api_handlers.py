@@ -99,9 +99,7 @@ class TestHandleUpsert:
         ]
 
         start = time.time()
-        handle_upsert(
-            mock_qb_api, "tblXYZ", [], max_retries=10
-        )  # Would be 2^9 = 512s without cap
+        handle_upsert(mock_qb_api, "tblXYZ", [], max_retries=10)  # Would be 2^9 = 512s without cap
         elapsed = time.time() - start
 
         # Should be capped at ~60 seconds, not 512
@@ -113,14 +111,10 @@ class TestHandleDelete:
 
     def test_delete_success(self, mock_qb_api):
         """Test successful delete."""
-        result = handle_delete(
-            mock_qb_api, "tblXYZ", where="{8.EX.'Inactive'}", description="Test delete"
-        )
+        result = handle_delete(mock_qb_api, "tblXYZ", where="{8.EX.'Inactive'}", description="Test delete")
 
         assert result == 5
-        mock_qb_api.delete_records.assert_called_once_with(
-            "tblXYZ", where="{8.EX.'Inactive'}"
-        )
+        mock_qb_api.delete_records.assert_called_once_with("tblXYZ", where="{8.EX.'Inactive'}")
 
     def test_delete_logs_result(self, mock_qb_api, caplog):
         """Test that delete logs result."""

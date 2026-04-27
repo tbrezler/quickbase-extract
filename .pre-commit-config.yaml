@@ -8,14 +8,13 @@ repos:
       - id: check-yaml
       - id: debug-statements    # Prevents accidental pdb/breakpoint commits
 
-  - repo: https://github.com/psf/black
-    rev: 23.12.1
-    hooks:
-      - id: black
-        language_version: python3.12
-
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.1.11
     hooks:
       - id: ruff
         args: [--fix]
+        stages: [pre-commit]
+      - id: ruff-format
+        stages: [pre-commit]
+      - id: ruff  # Run again to verify no more changes
+        stages: [pre-commit]
