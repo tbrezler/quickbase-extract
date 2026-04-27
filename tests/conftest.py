@@ -82,6 +82,14 @@ def mock_qb_api():
 
 
 @pytest.fixture
+def mock_ensure_cache_freshness():
+    """Create a mock for ensure_cache_freshness function."""
+    from unittest.mock import MagicMock
+
+    return MagicMock()
+
+
+@pytest.fixture
 def sample_report_configs():
     """Sample report configurations as ReportConfig instances."""
     return [
@@ -208,4 +216,6 @@ def mock_s3_client():
     """Create a mock S3 client for testing."""
     from unittest.mock import MagicMock
 
+    return MagicMock()
+    return MagicMock()
     return MagicMock()

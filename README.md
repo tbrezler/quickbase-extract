@@ -928,9 +928,29 @@ def lambda_handler(event, context):
     - Cold start: Syncs cache from S3
     - Cache freshness: Auto-refreshes if stale
     - Data fetching: Queries Quickbase and caches results
+    - Development: Supports forcing complete cache refresh for testing
     """
     client = get_client()
     cache_mgr = get_cache_manager()
+
+    # OPTIONAL: Set to True to force cache refresh (for development/debugging only)
+    # Only one should be True at a time. force_all overrides the others.
+    FORCE_COMPLETE_CACHE_REFRESH_ALL = False
+    FORCE_COMPLETE_CACHE_REFRESH_METADATA = False
+    FORCE_COMPLETE_CACHE_REFRESH_DATA = False
+
+    # Force complete cache refresh if needed (dev/debugging only)
+    if (FORCE_COMPLETE_CACHE_REFRESH_ALL or FORCE_COMPLETE_CACHE_REFRESH_METADATA
+            or FORCE_COMPLETE_CACHE_REFRESH_DATA):
+        from quickbase_extract import complete_cache_refresh
+        complete_cache_refresh(
+            cache_manager=cache_mgr,
+            client=client,
+            report_configs=get_all_reports(),
+            force_all=FORCE_COMPLETE_CACHE_REFRESH_ALL,
+            force_metadata=FORCE_COMPLETE_CACHE_REFRESH_METADATA,
+            force_data=FORCE_COMPLETE_CACHE_REFRESH_DATA,
+        )
 
     # Step 1: Sync cache from S3 on cold start (only on first invocation)
     sync_from_s3_once(cache_mgr)
@@ -1535,6 +1555,48 @@ def lambda_handler(event, context):
     # Proceed with cache operations
     metadata = load_report_metadata_batch(cache_mgr, config)
 ```
+
+#### `complete_cache_refresh(cache_manager, client, report_configs, force_all=False, force_metadata=False, force_data=False)`
+
+Completely refresh cache for development/debugging: clear /tmp, fetch fresh from Quickbase, update S3, re-sync to /tmp.
+
+This is a development utility for forcing a complete cache refresh when report metadata or configurations change. Clears local /tmp cache, fetches fresh data from Quickbase, writes to S3, and re-syncs to /tmp.
+
+**Parameters:**
+- `cache_manager` (CacheManager): Cache manager instance
+- `client`: Quickbase API client for fetching fresh data
+- `report_configs` (list[ReportConfig]): List of all ReportConfig instances to refresh
+- `force_all` (bool): If True, refresh both metadata and data. Defaults to False.
+- `force_metadata` (bool): If True (and `force_all` is False), refresh only metadata. Defaults to False.
+- `force_data` (bool): If True (and `force_all` is False), refresh only data. Defaults to False.
+
+**Returns:** None
+
+**Raises:**
+- `Exception`: If cache clearing or refresh operations fail
+
+**Example:**
+```python
+from quickbase_extract import complete_cache_refresh
+
+# Refresh only metadata (after changing report configurations)
+complete_cache_refresh(
+    cache_manager=cache_mgr,
+    client=qb_client,
+    report_configs=get_all_reports(),
+    force_metadata=True
+)
+
+# Refresh all (metadata + data)
+complete_cache_refresh(
+    cache_manager=cache_mgr,
+    client=qb_client,
+    report_configs=get_all_reports(),
+    force_all=True
+)
+```
+
+**Note:** This function is designed for development/debugging. To use in Lambda, add toggles to your handler (see "Development/Debug Mode" section below).
 
 ### Query Execution with Retry Logic
 
@@ -2216,6 +2278,47 @@ ask_values = {"ask1": "value"}    # No underscores
 
 ---
 
+### Issue: Lambda has old cached data after I changed report metadata
+
+**Symptom:** You updated a Quickbase report's fields, filters, or configuration, but your Lambda returns stale data.
+
+**Cause:** Cache was loaded before your changes, and it hasn't become "stale" enough to auto-refresh yet.
+
+**Solutions:**
+
+1. **Quick fix: Use force refresh toggle (development only)**
+
+   In your Lambda handler, temporarily set:
+   ```python
+   FORCE_COMPLETE_CACHE_REFRESH_METADATA = True
+   ```
+
+   Upload new build, invoke Lambda, check logs for refresh. Then revert flag to `False`.
+
+2. **For immediate production fix:**
+
+   Manually delete files from S3:
+   ```bash
+   aws s3 rm s3://my-quickbase-cache-bucket/prod/cache/report_metadata/ --recursive
+   ```
+
+   Next Lambda cold start will re-fetch fresh metadata.
+
+3. **To prevent in future:**
+
+   Reduce `metadata_stale_hours` threshold:
+   ```python
+   ensure_cache_freshness(
+       client=client,
+       cache_manager=cache_mgr,
+       report_configs_all=get_all_reports(),
+       report_configs_to_cache=get_reports_to_cache(),
+       metadata_stale_hours=24  # Check daily instead of 30 days
+   )
+   ```
+
+---
+
 ### Issue: Performance degradation over time
 
 **Symptom:** First request fast, subsequent requests slow.
@@ -2594,6 +2697,95 @@ def scheduled_cache_refresh(event, context):
 
     return {"statusCode": 200, "message": "Cache refreshed"}
 ```
+
+### Development/Debug Mode: Forcing Complete Cache Refresh
+
+When you modify report metadata or configurations in Quickbase, your Lambda may still use stale cached data. Use the force refresh toggles to clear everything and fetch fresh data.
+
+#### When to Use
+
+- You changed a report's filters or fields in Quickbase
+- You added/removed fields from a report
+- You renamed a report or table
+- You need to verify fresh data is being fetched
+
+#### How to Use
+
+1. Open your Lambda handler code
+2. Set one of the toggle flags to `True`:
+
+```python
+# In lambda_handler, find these lines:
+FORCE_COMPLETE_CACHE_REFRESH_ALL = False
+FORCE_COMPLETE_CACHE_REFRESH_METADATA = False
+FORCE_COMPLETE_CACHE_REFRESH_DATA = False
+
+# Change to (example: refresh only metadata):
+FORCE_COMPLETE_CACHE_REFRESH_METADATA = True
+```
+
+3. Upload new Lambda build
+4. Invoke your Lambda (via API or CloudWatch event)
+5. Check CloudWatch logs for cache refresh messages
+6. **Revert the flag back to `False`** for normal operation
+
+#### Flag Options
+
+| Flag | What Gets Refreshed | Use When |
+|------|---------------------|----------|
+| `force_all=True` | Both metadata + data | Complete cache overhaul needed |
+| `force_metadata=True` | Only metadata | Report configuration changed |
+| `force_data=True` | Only data | Data needs fresh pull |
+
+#### What Happens
+
+When you trigger a force refresh:
+
+1. ✓ `/tmp` cache directories are deleted
+2. ✓ Fresh data fetched from Quickbase API
+3. ✓ Data written to S3
+4. ✓ `/tmp` re-synced from updated S3
+
+Your Lambda now has fresh data from Quickbase.
+
+#### Example
+
+```python
+def lambda_handler(event, context):
+    client = get_client()
+    cache_mgr = get_cache_manager()
+
+    # Metadata changed in Quickbase? Force refresh it:
+    FORCE_COMPLETE_CACHE_REFRESH_METADATA = True  # ← Toggle this
+
+    if (FORCE_COMPLETE_CACHE_REFRESH_ALL or FORCE_COMPLETE_CACHE_REFRESH_METADATA
+            or FORCE_COMPLETE_CACHE_REFRESH_DATA):
+        from quickbase_extract import complete_cache_refresh
+        complete_cache_refresh(
+            cache_manager=cache_mgr,
+            client=client,
+            report_configs=get_all_reports(),
+            force_metadata=FORCE_COMPLETE_CACHE_REFRESH_METADATA,
+        )
+
+    # Rest of handler...
+```
+
+**CloudWatch logs will show:**
+```
+WARNING: Starting complete cache refresh for: metadata (clearing /tmp, refreshing from Quickbase, updating S3...)
+DEBUG: Reset cache sync flag
+INFO: Fetching fresh data from Quickbase...
+INFO: Re-syncing /tmp from S3...
+WARNING: Complete cache refresh finished for metadata: /tmp and S3 now have fresh data from Quickbase
+```
+
+#### Important Notes
+
+- **Don't leave toggles set to `True`** — revert to `False` after testing
+- **Only for development** — not a production workflow
+- Logs will show exactly what was refreshed
+- Safe to use — doesn't affect running processes, only next Lambda invocation
 
 ## Advanced Usage
 

@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-04-27
+
+### Added
+
+- `complete_cache_refresh()` function in `cache_sync` module for selective cache refresh in development
+- Support for granular cache refresh control:
+  - `force_all=True`: Refresh both metadata and data caches
+  - `force_metadata=True`: Refresh only metadata cache
+  - `force_data=True`: Refresh only data cache
+- Cache refresh workflow: clear /tmp → fetch fresh from Quickbase → update S3 → re-sync to /tmp
+- Manual development toggles in Lambda handlers for testing cache refresh without API changes
+- Comprehensive test suite for complete cache refresh functionality
+
+### Changed
+
+- Lambda workers can now force complete cache refresh for development/debugging by toggling code variables
+- Cache refresh strategy clarified: selective refresh based on what changed (metadata vs data)
+
+### Fixed
+
+- Dev workflow now supports forcing cache refresh without modifying Lambda event API
+- Ensures /tmp and S3 are synchronized after cache refresh operations
+
 ## [0.2.1] - 2026-04-25
 
 ### Fixed
