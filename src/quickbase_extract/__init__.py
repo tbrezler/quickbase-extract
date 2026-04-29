@@ -47,6 +47,7 @@ from quickbase_extract.report_data import get_data, get_data_parallel, load_data
 
 # Report metadata
 from quickbase_extract.report_metadata import (
+    filter_metadata_by_table,
     get_report_metadata,
     get_report_metadata_parallel,
     load_report_metadata,
@@ -82,6 +83,7 @@ __all__ = [
     "get_report_metadata_parallel",
     "load_report_metadata",
     "load_report_metadata_batch",
+    "filter_metadata_by_table",
     # Report data
     "get_data",
     "get_data_parallel",

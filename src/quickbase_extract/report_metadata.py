@@ -307,3 +307,53 @@ def load_report_metadata_batch(
         metadata[config] = load_report_metadata(cache_manager, config)
 
     return metadata
+
+
+def filter_metadata_by_table(
+    report_metadata: dict[ReportConfig, dict],
+    table_name: str,
+    app_name: str | None = None,
+) -> dict:
+    """Retrieve metadata for a specific table, optionally filtered by app.
+
+    Args:
+        report_metadata: dict from load_report_metadata_batch()
+        table_name: Table name (e.g., "Accounts", "Billing Runs")
+        app_name: Optional app name. If not provided, table_name must be unique
+                  across all apps.
+
+    Returns:
+        Metadata dict for the specified table (and app if provided).
+
+    Raises:
+        ValueError: If not found, or if table_name is ambiguous (multiple apps)
+                   without app_name specified.
+
+    Example:
+        >>> metadata = load_report_metadata_batch(cache_manager, configs)
+        >>> runs_md = filter_metadata_by_app_table(metadata, "Billing Runs")
+        >>> accounts = filter_metadata_by_app_table(metadata, "Accounts", app_name="date_lake")
+    """
+    if app_name:
+        # Filter by both app and table
+        results = [
+            data
+            for config, data in report_metadata.items()
+            if config.app_name == app_name and config.table_name == table_name
+        ]
+        error_msg = f"app={app_name}, table={table_name}"
+    else:
+        # Filter by table only
+        results = [data for config, data in report_metadata.items() if config.table_name == table_name]
+        error_msg = f"table={table_name}"
+
+    if not results:
+        raise ValueError(f"No metadata found for {error_msg}")
+
+    if len(results) > 1:
+        available_apps = [config.app_name for config, _ in report_metadata.items() if config.table_name == table_name]
+        raise ValueError(
+            f"Multiple apps have table '{table_name}': {available_apps}. Please specify app_name: {available_apps[0]}"
+        )
+
+    return results[0]

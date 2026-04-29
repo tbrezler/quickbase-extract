@@ -7,7 +7,9 @@ from quickbase_extract.cache_manager import CacheManager
 from quickbase_extract.config import ReportConfig
 from quickbase_extract.report_data import (
     _extract_report_names,
+    _normalize_ask_values,
     _replace_ask_placeholders,
+    _validate_ask_values,
     get_data,
     get_data_parallel,
     load_data,
@@ -17,6 +19,103 @@ from quickbase_extract.report_metadata import (
     get_report_metadata,
     load_report_metadata_batch,
 )
+
+
+class TestValidateAskValues:
+    """Tests for _validate_ask_values helper function."""
+
+    def test_valid_single_placeholder_value(self, sample_report_configs):
+        """Test validation passes with valid single placeholder and value."""
+        config = sample_report_configs[0]
+        placeholders = {"_ask1_"}
+        ask_values = {"ask1": "value"}
+
+        # Should not raise
+        _validate_ask_values(ask_values, placeholders, config)
+
+    def test_valid_multiple_placeholders(self, sample_report_configs):
+        """Test validation passes with multiple placeholders and values."""
+        config = sample_report_configs[0]
+        placeholders = {"_ask1_", "_ask2_"}
+        ask_values = {"ask1": "value1", "ask2": ["value2", "value3"]}
+
+        # Should not raise
+        _validate_ask_values(ask_values, placeholders, config)
+
+    def test_missing_placeholder_value_raises_error(self, sample_report_configs):
+        """Test error when placeholder has no corresponding value."""
+        config = sample_report_configs[0]
+        placeholders = {"_ask1_", "_ask2_"}
+        ask_values = {"ask1": "value1"}  # Missing ask2
+
+        with pytest.raises(ValueError, match="requires values for.*_ask2_"):
+            _validate_ask_values(ask_values, placeholders, config)
+
+    def test_unused_ask_value_raises_error(self, sample_report_configs):
+        """Test error when provided value is not used in filter."""
+        config = sample_report_configs[0]
+        placeholders = {"_ask1_"}
+        ask_values = {"ask1": "value1", "ask2": "value2"}  # ask2 not in filter
+
+        with pytest.raises(ValueError, match="received ask_values.*ask2.*not used"):
+            _validate_ask_values(ask_values, placeholders, config)
+
+    def test_empty_list_raises_error(self, sample_report_configs):
+        """Test error when empty list provided."""
+        config = sample_report_configs[0]
+        placeholders = {"_ask1_"}
+        ask_values = {"ask1": []}  # Empty list
+
+        with pytest.raises(ValueError, match="empty lists"):
+            _validate_ask_values(ask_values, placeholders, config)
+
+    def test_empty_placeholders_set_validates(self, sample_report_configs):
+        """Test that empty placeholders set validates successfully with empty ask_values."""
+        config = sample_report_configs[0]
+        placeholders = set()
+        ask_values = {}
+
+        # Should not raise
+        _validate_ask_values(ask_values, placeholders, config)
+
+
+class TestNormalizeAskValues:
+    """Tests for _normalize_ask_values helper function."""
+
+    def test_normalize_string_to_list(self):
+        """Test that string values are converted to single-element lists."""
+        ask_values = {"ask1": "value"}
+        result = _normalize_ask_values(ask_values)
+
+        assert result == {"ask1": ["value"]}
+
+    def test_normalize_list_unchanged(self):
+        """Test that list values remain unchanged."""
+        ask_values = {"ask1": ["val1", "val2"]}
+        result = _normalize_ask_values(ask_values)
+
+        assert result == {"ask1": ["val1", "val2"]}
+
+    def test_normalize_mixed_values(self):
+        """Test normalization with mixed string and list values."""
+        ask_values = {"ask1": "single", "ask2": ["multi1", "multi2"]}
+        result = _normalize_ask_values(ask_values)
+
+        assert result == {"ask1": ["single"], "ask2": ["multi1", "multi2"]}
+
+    def test_normalize_empty_dict(self):
+        """Test normalization with empty dict."""
+        ask_values = {}
+        result = _normalize_ask_values(ask_values)
+
+        assert result == {}
+
+    def test_normalize_preserves_order(self):
+        """Test that normalization preserves dict key order."""
+        ask_values = {"ask3": "val3", "ask1": "val1", "ask2": "val2"}
+        result = _normalize_ask_values(ask_values)
+
+        assert list(result.keys()) == ["ask3", "ask1", "ask2"]
 
 
 class TestReplaceAskPlaceholders:
@@ -33,7 +132,7 @@ class TestReplaceAskPlaceholders:
         assert result == "{'25'.EX.'abc123'}"
 
     def test_replace_multiple_placeholders(self, sample_report_configs):
-        """Test replacing multiple ask placeholders."""
+        """Test replacing multiple different placeholders."""
         config = sample_report_configs[0]
         filter_str = "({'25'.EX.'_ask1_'}AND{'40'.EX.'_ask2_'})"
         ask_values = {"ask1": "value1", "ask2": "value2"}
@@ -41,6 +140,84 @@ class TestReplaceAskPlaceholders:
         result = _replace_ask_placeholders(filter_str, ask_values, config)
 
         assert result == "({'25'.EX.'value1'}AND{'40'.EX.'value2'})"
+
+    def test_replace_placeholder_with_list_values(self, sample_report_configs):
+        """Test replacing placeholder with multiple values creates OR condition."""
+        config = sample_report_configs[0]
+        filter_str = "{'25'.EX.'_ask1_'}"
+        ask_values = {"ask1": ["val1", "val2", "val3"]}
+
+        result = _replace_ask_placeholders(filter_str, ask_values, config)
+
+        expected = "({'25'.EX.'val1'}OR{'25'.EX.'val2'}OR{'25'.EX.'val3'})"
+        assert result == expected
+
+    def test_replace_list_with_single_element(self, sample_report_configs):
+        """Test that list with single element is treated as single value."""
+        config = sample_report_configs[0]
+        filter_str = "{'25'.EX.'_ask1_'}"
+        ask_values = {"ask1": ["only_value"]}
+
+        result = _replace_ask_placeholders(filter_str, ask_values, config)
+
+        # Single element list should not create OR
+        assert result == "{'25'.EX.'only_value'}"
+
+    def test_empty_list_raises_error(self, sample_report_configs):
+        """Test that empty list in ask_values raises ValueError."""
+        config = sample_report_configs[0]
+        filter_str = "{'25'.EX.'_ask1_'}"
+        ask_values = {"ask1": []}
+
+        with pytest.raises(ValueError, match="empty lists"):
+            _replace_ask_placeholders(filter_str, ask_values, config)
+
+    def test_mixed_string_and_list_values(self, sample_report_configs):
+        """Test replacing multiple placeholders with mixed string and list values."""
+        config = sample_report_configs[0]
+        filter_str = "({'25'.EX.'_ask1_'}AND{'40'.EX.'_ask2_'})"
+        ask_values = {"ask1": "single_value", "ask2": ["val1", "val2"]}
+
+        result = _replace_ask_placeholders(filter_str, ask_values, config)
+
+        # ask1 should be simple replacement, ask2 should have OR
+        assert "{'25'.EX.'single_value'}" in result
+        assert "({'40'.EX.'val1'}OR{'40'.EX.'val2'})" in result
+
+    def test_list_values_in_complex_filter(self, sample_report_configs):
+        """Test list value expansion maintains filter logic in complex expressions."""
+        config = sample_report_configs[0]
+        filter_str = "({'15'.EX.'Pending'}AND{'41'.EX.'_ask1_'})"
+        ask_values = {"ask1": ["urgent", "high"]}
+
+        result = _replace_ask_placeholders(filter_str, ask_values, config)
+
+        # Should preserve outer AND structure with inner OR
+        assert "{'15'.EX.'Pending'}" in result
+        assert "({'41'.EX.'urgent'}OR{'41'.EX.'high'})" in result
+
+    def test_multiple_condition_blocks_same_placeholder(self, sample_report_configs):
+        """Test replacing multiple condition blocks with same placeholder."""
+        config = sample_report_configs[0]
+        filter_str = "({'41'.EX.'_ask1_'}OR{'40'.EX.'_ask1_'})"
+        ask_values = {"ask1": "urgent"}
+
+        result = _replace_ask_placeholders(filter_str, ask_values, config)
+
+        expected = "({'41'.EX.'urgent'}OR{'40'.EX.'urgent'})"
+        assert result == expected
+
+    def test_multiple_blocks_same_placeholder_with_list_values(self, sample_report_configs):
+        """Test replacing multiple condition blocks with same placeholder using list values."""
+        config = sample_report_configs[0]
+        filter_str = "({'41'.EX.'_ask1_'}OR{'40'.EX.'_ask1_'})"
+        ask_values = {"ask1": ["a", "b"]}
+
+        result = _replace_ask_placeholders(filter_str, ask_values, config)
+
+        # Each condition block should be expanded
+        assert "({'41'.EX.'a'}OR{'41'.EX.'b'})" in result
+        assert "({'40'.EX.'a'}OR{'40'.EX.'b'})" in result
 
     def test_no_placeholders_returns_unchanged(self, sample_report_configs):
         """Test that filter without placeholders is returned unchanged."""
@@ -81,14 +258,28 @@ class TestReplaceAskPlaceholders:
         assert result == "{'25'.EX.'value with spaces & symbols!'}"
 
     def test_complex_filter_with_mixed_content(self, sample_report_configs):
-        """Test replacing placeholders in complex filter."""
+        """Test replacing placeholders in complex filter with both fixed and dynamic values."""
         config = sample_report_configs[0]
         filter_str = "({'15'.EX.'Pending'}AND({'41'.EX.'_ask1_'}OR{'40'.EX.'_ask1_'}))"
         ask_values = {"ask1": "urgent"}
 
         result = _replace_ask_placeholders(filter_str, ask_values, config)
 
-        assert result == ("({'15'.EX.'Pending'}AND({'41'.EX.'urgent'}OR{'40'.EX.'urgent'}))")
+        expected = "({'15'.EX.'Pending'}AND({'41'.EX.'urgent'}OR{'40'.EX.'urgent'}))"
+        assert result == expected
+
+    def test_complex_filter_with_mixed_content_and_list(self, sample_report_configs):
+        """Test complex filter with multiple condition blocks and list values."""
+        config = sample_report_configs[0]
+        filter_str = "({'15'.EX.'Pending'}AND({'41'.EX.'_ask1_'}OR{'40'.EX.'_ask1_'}))"
+        ask_values = {"ask1": ["urgent", "high"]}
+
+        result = _replace_ask_placeholders(filter_str, ask_values, config)
+
+        # Should have outer structure preserved and inner ORs expanded
+        assert "{'15'.EX.'Pending'}" in result
+        assert "({'41'.EX.'urgent'}OR{'41'.EX.'high'})" in result
+        assert "({'40'.EX.'urgent'}OR{'40'.EX.'high'})" in result
 
 
 class TestExtractReportNames:

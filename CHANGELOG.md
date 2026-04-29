@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-04-29
+
+### Added
+
+- Support for multiple values in `ask_values` parameters - values can now be strings or lists of strings
+- Automatic OR condition expansion: list values like `{"ask1": ["val1", "val2", "val3"]}` expand to `({'25'.EX.'val1'}OR{'25'.EX.'val2'}OR{'25'.EX.'val3'})`
+- Proper grouping with parentheses when multiple values are used to preserve filter logic precedence
+- Validation for empty lists in `ask_values` - raises `ValueError` if empty list provided
+- `filter_metadata_by_table()` helper function for convenient report metadata lookup by table name, with optional app name filtering to resolve ambiguous table names across apps
+- Helper functions `_validate_ask_values()` and `_normalize_ask_values()` for cleaner separation of concerns in placeholder replacement
+
+### Changed
+
+- `ask_values` type hint updated from `dict[str, str]` to `dict[str, str | list[str]]` in `get_data()` and `get_data_parallel()`
+- `_replace_ask_placeholders()` refactored to use helper functions for validation and normalization, improving testability and maintainability
+- Filter replacement now extracts and replaces full condition blocks (e.g., `{'25'.EX.'_ask1_'}`) instead of just placeholders
+- Placeholder replacement now processes all occurrences using `re.finditer()` instead of only the first match
+
+### Fixed
+
+- Complex filters with multiple conditions now maintain proper precedence when list values are expanded
+- **BREAKING FIX**: Multiple condition blocks with the same placeholder are now all replaced correctly (previously only first occurrence was replaced)
+- String position preservation during replacement to handle complex multi-placeholder filters correctly
+
 ## [0.3.1] - 2026-04-27
 
 ### Fixed

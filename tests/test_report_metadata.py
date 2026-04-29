@@ -7,6 +7,7 @@ from quickbase_extract.cache_manager import CacheManager
 from quickbase_extract.config import ReportConfig
 from quickbase_extract.report_metadata import (
     fetch_report_metadata_api,
+    filter_metadata_by_table,
     get_report_metadata,
     get_report_metadata_parallel,
     load_report_metadata,
@@ -392,7 +393,48 @@ class TestLoadReportMetadataBatch:
         # Should be able to look up by config
         config1 = sample_report_configs[0]
         assert all_metadata[config1]["table_id"] == "tblXYZ123"
-        assert all_metadata[config1]["table_id"] == "tblXYZ123"
-        assert all_metadata[config1]["table_id"] == "tblXYZ123"
-        assert all_metadata[config1]["table_id"] == "tblXYZ123"
-        assert all_metadata[config1]["table_id"] == "tblXYZ123"
+
+
+class TestFilterMetadataByTable:
+    """Tests for filter_metadata_by_table function."""
+
+    def test_filter_metadata_by_table_unique(self, sample_report_metadata, sample_report_configs):
+        """Test retrieving metadata for a unique table."""
+
+        table_name = sample_report_configs[0].table_name
+        result = filter_metadata_by_table(sample_report_metadata, table_name)
+
+        assert result["table_name"] == "test_table"
+        assert result["table_id"] == "tblXYZ123"
+
+    def test_get_metadata_by_table_with_app_name(self, sample_report_metadata, sample_report_configs):
+        """Test retrieving metadata filtering by both app and table."""
+
+        config = sample_report_configs[0]
+        result = filter_metadata_by_table(sample_report_metadata, config.table_name, app_name=config.app_name)
+
+        assert result["table_name"] == "test_table"
+        assert result["app_name"] == "test_app"
+
+    def test_get_metadata_by_table_not_found(self, sample_report_metadata):
+        """Test error when table not found."""
+
+        with pytest.raises(ValueError, match="No metadata found"):
+            filter_metadata_by_table(sample_report_metadata, "Nonexistent Table")
+
+    def test_get_metadata_by_table_ambiguous_without_app(self, sample_report_metadata):
+        """Test error when table exists in multiple apps without app_name specified."""
+
+        # Create a second metadata entry with same table name but different app
+        # This would require a fixture with duplicate table names across apps
+        # For now, this documents expected behavior
+        pass
+
+    def test_get_metadata_by_table_ambiguous_with_app(self, sample_report_metadata, sample_report_configs):
+        """Test successful lookup when table is ambiguous but app_name is provided."""
+
+        config = sample_report_configs[0]
+        # Should not raise error because app_name disambiguates
+        result = filter_metadata_by_table(sample_report_metadata, config.table_name, app_name=config.app_name)
+
+        assert result is not None

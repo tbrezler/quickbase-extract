@@ -12,70 +12,153 @@ from quickbase_extract.config import ReportConfig
 logger = logging.getLogger(__name__)
 
 
-def _replace_ask_placeholders(
-    report_filter: str,
-    ask_values: dict[str, str],
+def _validate_ask_values(
+    ask_values: dict[str, str | list[str]],
+    placeholders_in_filter: set[str],
     report_config: ReportConfig,
-) -> str:
-    """Replace ask-the-user placeholders in a Quickbase filter with actual values.
+) -> None:
+    """Validate that ask_values matches placeholders in filter.
+
+    Ensures that:
+    - All placeholders in the filter have corresponding values in ask_values
+    - All values in ask_values are actually used in the filter
+    - No empty lists are provided
 
     Args:
-        report_filter: The filter string from report metadata (e.g., "{'25'.EX.'_ask1_'}").
-        ask_values: Dict mapping placeholder keys to values (e.g., {"ask1": "abc123"}).
+        ask_values: Dict mapping placeholder keys (e.g., "ask1") to values or lists of values.
+        placeholders_in_filter: Set of placeholder strings found in filter (e.g., {"_ask1_", "_ask2_"}).
         report_config: ReportConfig for error messages.
 
-    Returns:
-        Modified filter string with placeholders replaced.
-
     Raises:
-        ValueError: If required placeholders are missing values or unused values provided.
-
-    Example:
-        >>> filter_str = "{'25'.EX.'_ask1_'}AND{'10'.AF.'today'}"
-        >>> config = ReportConfig("bq8xyx9z", "Accounts", "Python")
-        >>> _replace_ask_placeholders(filter_str, {"ask1": "abc123"}, config)
-        "{'25'.EX.'abc123'}AND{'10'.AF.'today'}"
+        ValueError: If values are missing, unused, or if any list is empty.
     """
-    # Find all placeholders in the filter (e.g., _ask1_, _ask2_)
-    placeholders_in_filter = set(re.findall(r"_ask\d+_", report_filter))
-
-    if not placeholders_in_filter:
-        # No placeholders found - nothing to replace
-        return report_filter
-
-    # Validate: all placeholders in filter must have corresponding values
-    missing_values = []
-    for placeholder in placeholders_in_filter:
-        # Convert _ask1_ to ask1 for lookup
-        key = placeholder.strip("_")
-        if key not in ask_values:
-            missing_values.append(placeholder)
-
+    # Check for missing values
+    missing_values = [p for p in placeholders_in_filter if p.strip("_") not in ask_values]
     if missing_values:
         raise ValueError(
             f"Report {report_config} filter requires values for {missing_values}, "
             f"but they were not provided in ask_values."
         )
 
-    # Validate: all provided values must be used in filter
-    unused_values = []
-    for key in ask_values.keys():
-        placeholder = f"_{key}_"
-        if placeholder not in placeholders_in_filter:
-            unused_values.append(key)
-
+    # Check for unused values
+    unused_values = [k for k in ask_values.keys() if f"_{k}_" not in placeholders_in_filter]
     if unused_values:
         raise ValueError(
             f"Report {report_config} received ask_values {unused_values} "
             f"that are not used in the filter. Available placeholders: {list(placeholders_in_filter)}"
         )
 
-    # Replace placeholders with actual values
+    # Check for empty lists
+    empty_list_keys = [k for k, v in ask_values.items() if isinstance(v, list) and len(v) == 0]
+    if empty_list_keys:
+        raise ValueError(
+            f"Report {report_config} received empty lists for ask_values keys: {empty_list_keys}. "
+            f"Empty lists are not allowed."
+        )
+
+
+def _normalize_ask_values(ask_values: dict[str, str | list[str]]) -> dict[str, list[str]]:
+    """Normalize all ask_values to lists for consistent processing.
+
+    Converts single string values to single-element lists, leaving list values
+    unchanged. This allows downstream logic to handle all values uniformly.
+
+    Args:
+        ask_values: Dict with values that are either strings or lists of strings.
+
+    Returns:
+        Dict with all values as lists of strings.
+
+    Example:
+        >>> _normalize_ask_values({"ask1": "value", "ask2": ["a", "b"]})
+        {"ask1": ["value"], "ask2": ["a", "b"]}
+    """
+    normalized = {}
+    for key, value in ask_values.items():
+        normalized[key] = [value] if isinstance(value, str) else value
+    return normalized
+
+
+def _replace_ask_placeholders(
+    report_filter: str,
+    ask_values: dict[str, str | list[str]],
+    report_config: ReportConfig,
+) -> str:
+    """Replace ask-the-user placeholders in a Quickbase filter with actual values.
+
+    Finds all placeholders (e.g., _ask1_, _ask2_) in the filter and replaces them
+    with provided values. Single values are replaced directly, while multiple values
+    in a list are expanded into OR conditions with proper grouping to preserve
+    filter logic precedence.
+
+    Args:
+        report_filter: The filter string from report metadata (e.g., "{'25'.EX.'_ask1_'}").
+        ask_values: Dict mapping placeholder keys to values or lists of values.
+            Keys like "ask1", "ask2". Values can be strings or lists of strings.
+            Example: {"ask1": "abc123"} or {"ask1": ["abc123", "abc456"]}
+        report_config: ReportConfig for error messages.
+
+    Returns:
+        Modified filter string with placeholders replaced.
+
+    Raises:
+        ValueError: If required placeholders are missing values, unused values provided,
+                   empty lists provided, or condition blocks cannot be found.
+
+    Example:
+        >>> filter_str = "{'25'.EX.'_ask1_'}AND{'10'.AF.'today'}"
+        >>> config = ReportConfig("bq8xyx9z", "Accounts", "Python")
+        >>> # Single value
+        >>> _replace_ask_placeholders(filter_str, {"ask1": "abc123"}, config)
+        "{'25'.EX.'abc123'}AND{'10'.AF.'today'}"
+        >>> # Multiple values
+        >>> _replace_ask_placeholders(filter_str, {"ask1": ["val1", "val2"]}, config)
+        "(({'25'.EX.'val1'}OR{'25'.EX.'val2'}))AND{'10'.AF.'today'}"
+        >>> # Multiple condition blocks with same placeholder
+        >>> _replace_ask_placeholders(
+        ...     "({'41'.EX.'_ask1_'}OR{'40'.EX.'_ask1_'})",
+        ...     {"ask1": ["a", "b"]},
+        ...     config
+        ... )
+        "(({'41'.EX.'a'}OR{'41'.EX.'b'})OR({'40'.EX.'a'}OR{'40'.EX.'b'}))"
+    """
+    placeholders_in_filter = set(re.findall(r"_ask\d+_", report_filter))
+
+    if not placeholders_in_filter:
+        return report_filter
+
+    # Validate and normalize
+    _validate_ask_values(ask_values, placeholders_in_filter, report_config)
+    normalized_values = _normalize_ask_values(ask_values)
+
+    # Replace placeholders
     modified_filter = report_filter
     for placeholder in placeholders_in_filter:
         key = placeholder.strip("_")
-        value = ask_values[key]
-        modified_filter = modified_filter.replace(placeholder, value)
+        values = normalized_values[key]
+
+        # Find ALL condition blocks containing this placeholder
+        # Pattern: {...'_ask1_'...} where we capture the entire {...}
+        condition_pattern = rf"(\{{[^}}]*{re.escape(placeholder)}[^{{]*\}})"
+        matches = list(re.finditer(condition_pattern, modified_filter))
+
+        if not matches:
+            raise ValueError(f"Report {report_config} could not find condition block for placeholder {placeholder}")
+
+        # Process matches in reverse order to maintain string positions during replacement
+        for match in reversed(matches):
+            original_condition = match.group(1)
+
+            if len(values) == 1:
+                # Single value: simple replacement
+                new_condition = original_condition.replace(placeholder, values[0])
+            else:
+                # Multiple values: replicate condition and join with OR
+                replicated_conditions = [original_condition.replace(placeholder, v) for v in values]
+                new_condition = f"({('OR'.join(replicated_conditions))})"
+
+            # Replace using string slicing to preserve positions for other replacements
+            modified_filter = modified_filter[: match.start()] + new_condition + modified_filter[match.end() :]
 
     return modified_filter
 
@@ -132,7 +215,7 @@ def get_data(
     report_config: ReportConfig,
     report_metadata: dict[ReportConfig, dict],
     cache: bool = False,
-    ask_values: dict[str, str] | None = None,
+    ask_values: dict[str, str | list[str]] | None = None,
 ) -> list[dict]:
     """Query a Quickbase table for data using cached report metadata.
 
@@ -217,7 +300,7 @@ def get_data_parallel(
     report_metadata: dict,
     cache: bool = False,
     max_workers: int = 8,
-    ask_values: dict[ReportConfig, dict[str, str] | None] | None = None,
+    ask_values: dict[ReportConfig, dict[str, str | list[str]] | None] | None = None,
 ) -> dict[ReportConfig, list[dict]]:
     """Fetch multiple reports in parallel using cached report metadata.
 
