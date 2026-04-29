@@ -123,6 +123,7 @@ def _refresh_data_cache(
     cache_manager: CacheManager,
     reports_to_refresh: list[ReportConfig],
     reasons: list[str],
+    ask_values: dict[ReportConfig, dict[str, str | list[str]] | None] | None = None,
 ) -> None:
     """Refresh data cache for specified reports.
 
@@ -131,6 +132,8 @@ def _refresh_data_cache(
         cache_manager: CacheManager instance.
         reports_to_refresh: Reports to refresh data for.
         reasons: List of reasons for refresh (for logging).
+        ask_values: Optional dict mapping ReportConfig -> ask_values dict.
+            Per-report "ask the user" filter values.
 
     Raises:
         CacheRefreshError: If data refresh fails.
@@ -148,6 +151,7 @@ def _refresh_data_cache(
             report_configs=reports_to_refresh,
             report_metadata=metadata,
             cache=True,
+            ask_values=ask_values,
         )
         logger.info("Data cache refresh completed successfully")
     except Exception as e:
@@ -160,6 +164,7 @@ def ensure_cache_freshness(
     cache_manager: CacheManager,
     report_configs_all: list[ReportConfig],
     report_configs_to_cache: list[ReportConfig] | None = None,
+    ask_values: dict[ReportConfig, dict[str, str | list[str]] | None] | None = None,
     metadata_stale_hours: float | None = None,
     data_stale_hours: float | None = None,
     cache_all_data: bool = False,
@@ -184,6 +189,12 @@ def ensure_cache_freshness(
         report_configs_to_cache: Optional subset of ReportConfig instances to
             cache data for. If cache_all_data is True, this parameter is ignored
             and all reports' data is cached instead.
+        ask_values: Optional dict mapping ReportConfig -> ask_values dict.
+            Per-report "ask the user" filter values. Only used when refreshing
+            data cache. Example: {
+                ReportConfig("bq8x", "Accounts", "Python"): {"ask1": "abc"},
+                ReportConfig("bq9y", "Contacts", "Active"): {"ask1": "def"}
+            }
         metadata_stale_hours: Threshold (hours) for metadata staleness.
             If not provided, reads from METADATA_STALE_HOURS env var,
             falls back to DEFAULT_METADATA_STALE_HOURS (168 hours / 7 days).
@@ -221,12 +232,14 @@ def ensure_cache_freshness(
         ...     report_configs_to_cache=get_reports_to_cache(),
         ... )
         >>>
-        >>> # Cache all reports' data
+        >>> # Cache all reports' data with ask_values
+        >>> ask_vals = {get_all_reports()[0]: {"ask1": "value1"}}
         >>> ensure_cache_freshness(
         ...     client=client,
         ...     cache_manager=cache_manager,
         ...     report_configs_all=get_all_reports(),
         ...     cache_all_data=True,
+        ...     ask_values=ask_vals,
         ... )
     """
     # Resolve thresholds from arguments, environment, or defaults
@@ -295,4 +308,4 @@ def ensure_cache_freshness(
 
     # Refresh data if needed
     if data_needs_refresh:
-        _refresh_data_cache(client, cache_manager, reports_to_refresh_data, data_reasons)
+        _refresh_data_cache(client, cache_manager, reports_to_refresh_data, reasons=data_reasons, ask_values=ask_values)
