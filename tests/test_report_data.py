@@ -3,6 +3,7 @@
 import json
 
 import pytest
+
 from quickbase_extract.cache_manager import CacheManager
 from quickbase_extract.config import ReportConfig
 from quickbase_extract.report_data import (
@@ -48,7 +49,7 @@ class TestValidateAskValues:
         placeholders = {"_ask1_", "_ask2_"}
         ask_values = {"ask1": "value1"}  # Missing ask2
 
-        with pytest.raises(ValueError, match="requires values for.*_ask2_"):
+        with pytest.raises(ValueError, match=r"requires values for.*_ask2_"):
             _validate_ask_values(ask_values, placeholders, config)
 
     def test_unused_ask_value_raises_error(self, sample_report_configs):
@@ -57,7 +58,7 @@ class TestValidateAskValues:
         placeholders = {"_ask1_"}
         ask_values = {"ask1": "value1", "ask2": "value2"}  # ask2 not in filter
 
-        with pytest.raises(ValueError, match="received ask_values.*ask2.*not used"):
+        with pytest.raises(ValueError, match=r"received ask_values.*ask2.*not used"):
             _validate_ask_values(ask_values, placeholders, config)
 
     def test_empty_list_raises_error(self, sample_report_configs):
@@ -235,7 +236,7 @@ class TestReplaceAskPlaceholders:
         filter_str = "{'25'.EX.'_ask1_'}AND{'40'.EX.'_ask2_'}"
         ask_values = {"ask1": "value1"}  # Missing ask2
 
-        with pytest.raises(ValueError, match="requires values for.*_ask2_"):
+        with pytest.raises(ValueError, match=r"requires values for.*_ask2_"):
             _replace_ask_placeholders(filter_str, ask_values, config)
 
     def test_unused_placeholder_value_raises_error(self, sample_report_configs):
@@ -244,7 +245,7 @@ class TestReplaceAskPlaceholders:
         filter_str = "{'25'.EX.'_ask1_'}"
         ask_values = {"ask1": "value1", "ask2": "value2"}  # ask2 not in filter
 
-        with pytest.raises(ValueError, match="received ask_values.*ask2.*not used"):
+        with pytest.raises(ValueError, match=r"received ask_values.*ask2.*not used"):
             _replace_ask_placeholders(filter_str, ask_values, config)
 
     def test_placeholder_with_special_characters(self, sample_report_configs):

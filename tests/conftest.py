@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock
 
 import pytest
+
 from quickbase_extract.config import ReportConfig
 
 

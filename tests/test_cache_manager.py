@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+
 from quickbase_extract.cache_manager import CacheManager
 
 

@@ -3,6 +3,7 @@
 import json
 
 import pytest
+
 from quickbase_extract.cache_manager import CacheManager
 from quickbase_extract.config import ReportConfig
 from quickbase_extract.report_metadata import (
@@ -71,7 +72,7 @@ class TestFetchReportMetadataApi:
             {"id": "rptABC", "name": "Default"},
         ]
 
-        with pytest.raises(ValueError, match="Report .* not found"):
+        with pytest.raises(ValueError, match=r"Report .* not found"):
             fetch_report_metadata_api(
                 mock_qb_api,
                 "appXYZ123",
@@ -167,7 +168,7 @@ class TestGetReportMetadata:
             report_name="Nonexistent",
         )
 
-        with pytest.raises(ValueError, match="Report .* not found"):
+        with pytest.raises(ValueError, match=r"Report .* not found"):
             get_report_metadata(
                 mock_qb_api,
                 cache_mgr,

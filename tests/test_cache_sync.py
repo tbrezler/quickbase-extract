@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
+
 from quickbase_extract.cache_manager import CacheManager
 from quickbase_extract.cache_sync import (
     _reset_cache_sync,

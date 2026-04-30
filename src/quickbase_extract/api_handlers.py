@@ -4,8 +4,6 @@ Provides retry logic for rate-limited requests, standardized error handling,
 and logging for Quickbase API operations.
 """
 
-# ruff: noqa: BLE001
-
 import logging
 import random
 import time
@@ -139,11 +137,11 @@ def handle_query(
     client,
     table_id: str,
     *,
-    select: list[int] = None,
-    where: str = None,
-    sort_by: list[dict] = None,
-    group_by: list[dict] = None,
-    options: dict = None,
+    select: list[int] | None = None,
+    where: str | None = None,
+    sort_by: list[dict] | None = None,
+    group_by: list[dict] | None = None,
+    options: dict | None = None,
     description: str = "",
     max_retries: int = 3,
 ) -> dict:

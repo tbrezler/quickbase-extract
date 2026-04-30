@@ -3,6 +3,7 @@
 import time
 
 import pytest
+
 from quickbase_extract.api_handlers import (
     QuickbaseOperationError,
     handle_delete,

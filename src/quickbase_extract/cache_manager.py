@@ -308,7 +308,7 @@ class CacheManager:
             return 0
 
         oldest_mtime = min(f.stat().st_mtime for f in json_files)
-        # 60 sec × 60 min = 3600
+        # 60 sec * 60 min = 3600
         age_hours = (time.time() - oldest_mtime) / 3600
 
         return round(age_hours, 1)

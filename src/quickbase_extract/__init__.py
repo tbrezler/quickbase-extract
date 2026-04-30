@@ -42,7 +42,7 @@ from quickbase_extract.cache_sync import complete_cache_refresh, is_cache_synced
 # Config
 from quickbase_extract.config import ReportConfig
 
-# Report data retrieval
+# Report data
 from quickbase_extract.report_data import get_data, get_data_parallel, load_data, load_data_batch
 
 # Report metadata
@@ -63,32 +63,25 @@ __version__ = version("quickbase-extract")
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 __all__ = [
-    # Version
-    "__version__",
-    # Cache management
     "CacheManager",
-    "ensure_cache_freshness",
-    "complete_cache_refresh",
-    "sync_from_s3_once",
-    "is_cache_synced",
-    # Config
-    "ReportConfig",
-    # API operations
     "QuickbaseOperationError",
+    "ReportConfig",
+    "__version__",
+    "complete_cache_refresh",
+    "ensure_cache_freshness",
+    "filter_metadata_by_table",
+    "get_data",
+    "get_data_parallel",
+    "get_report_metadata",
+    "get_report_metadata_parallel",
     "handle_delete",
     "handle_query",
     "handle_upsert",
-    # Report metadata
-    "get_report_metadata",
-    "get_report_metadata_parallel",
-    "load_report_metadata",
-    "load_report_metadata_batch",
-    "filter_metadata_by_table",
-    # Report data
-    "get_data",
-    "get_data_parallel",
+    "is_cache_synced",
     "load_data",
     "load_data_batch",
-    # Utilities
+    "load_report_metadata",
+    "load_report_metadata_batch",
     "normalize_name",
+    "sync_from_s3_once",
 ]

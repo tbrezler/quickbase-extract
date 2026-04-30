@@ -6,6 +6,7 @@ import time
 from unittest.mock import MagicMock, patch
 
 import pytest
+
 from quickbase_extract.cache_manager import CacheManager
 from quickbase_extract.cache_orchestration import (
     CacheRefreshError,
@@ -264,6 +265,7 @@ class TestRefreshDataCache:
                     report_configs=sample_report_configs,
                     report_metadata={config: {} for config in sample_report_configs},
                     cache=True,
+                    ask_values=None,
                 )
                 assert "Data cache refresh needed: data stale" in caplog.text
                 assert "Data cache refresh completed successfully" in caplog.text
