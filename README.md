@@ -21,7 +21,7 @@ pip install quickbase-extract
 
 ### Requirements
 
-- Python 3.9+
+- Python 3.12+
 - `quickbase-api` - Quickbase API client
 - `boto3` - AWS SDK (for Lambda/S3 support)
 
