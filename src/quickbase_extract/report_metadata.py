@@ -238,7 +238,7 @@ def get_report_metadata_parallel(
 def load_report_metadata(
     cache_manager: CacheManager,
     report_config: ReportConfig,
-) -> dict:
+) -> dict[ReportConfig, dict]:
     """Load cached report metadata from disk.
 
     Args:
@@ -246,7 +246,8 @@ def load_report_metadata(
         report_config: ReportConfig identifying the report to load.
 
     Returns:
-        Dict containing table ID, field mappings, query config, and filters.
+        Dict mapping ReportConfig -> metadata dict (table ID, field mappings,
+        query config, and filters).
 
     Raises:
         FileNotFoundError: If cached metadata does not exist.
@@ -255,6 +256,7 @@ def load_report_metadata(
         >>> cache_manager = CacheManager(cache_root=Path("my_project/dev/cache"))
         >>> config = ReportConfig("bq8xyx9z", "Accounts", "Python")
         >>> metadata = load_report_metadata(cache_manager, config)
+        >>> config_metadata = metadata[config]
     """
     # Normalize names to match how they were saved
     app_name = normalize_name(report_config.app_name)
@@ -268,7 +270,8 @@ def load_report_metadata(
             f"Report metadata not found for {report_config}. Run get_report_metadata() first. Expected: {md_path}"
         )
 
-    return json.loads(cache_manager.read_file(md_path))
+    metadata_dict = json.loads(cache_manager.read_file(md_path))
+    return {report_config: metadata_dict}
 
 
 def load_report_metadata_batch(
@@ -304,7 +307,7 @@ def load_report_metadata_batch(
 
     metadata: dict[ReportConfig, dict] = {}
     for config in report_configs:
-        metadata[config] = load_report_metadata(cache_manager, config)
+        metadata.update(load_report_metadata(cache_manager, config))
 
     return metadata
 

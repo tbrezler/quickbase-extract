@@ -218,5 +218,3 @@ def mock_s3_client():
     from unittest.mock import MagicMock
 
     return MagicMock()
-    return MagicMock()
-    return MagicMock()

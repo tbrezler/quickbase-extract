@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-05-01
+
+### Fixed
+
+- `load_report_metadata()` return type changed from `dict` to `dict[ReportConfig, dict]` to match `load_report_metadata_batch()` and ensure consistent API with `get_data()`
+- Fixed incompatibility where `load_report_metadata()` result could not be directly passed to `get_data()` due to format mismatch
+
 ## [0.4.0] - 2026-04-29
 
 ### Added
@@ -107,9 +114,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `cache_freshness.py` module — functionality consolidated into `cache_manager.py` (use `ensure_cache_freshness()` instead)
 - `check_cache_freshness()`, `get_cache_files()`, `get_cache_summary()` functions — use `CacheManager` methods directly or `ensure_cache_freshness()` for orchestration
-- `refresh_all()` function**: Use `ensure_cache_freshness()` for cache management
-- `client.py` module**: Users must create Quickbase clients directly using `quickbase-api` package
-- `get_cache_manager()` singleton**: Users must create `CacheManager` instances explicitly
+- `refresh_all()` function\*\*: Use `ensure_cache_freshness()` for cache management
+- `client.py` module\*\*: Users must create Quickbase clients directly using `quickbase-api` package
+- `get_cache_manager()` singleton\*\*: Users must create `CacheManager` instances explicitly
 - `find_report()` function from utils - no longer needed with `ReportConfig`
 - Dict-based report config format - all configs must use `ReportConfig` NamedTuple
 - Nested `report` object from metadata - simplified structure

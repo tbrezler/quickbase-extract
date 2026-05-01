@@ -300,10 +300,12 @@ class TestLoadReportMetadata:
         # Now load it
         metadata = load_report_metadata(cache_mgr, config)
 
-        assert metadata["table_id"] == "tblXYZ123"
-        assert metadata["table_name"] == "test_table"
-        assert "fields" in metadata
-        assert "filter" in metadata
+        # Metadata is now dict[ReportConfig, dict]
+        assert config in metadata
+        assert metadata[config]["table_id"] == "tblXYZ123"
+        assert metadata[config]["table_name"] == "test_table"
+        assert "fields" in metadata[config]
+        assert "filter" in metadata[config]
 
     def test_load_nonexistent_metadata(self, temp_cache_dir, sample_report_configs):
         """Test error when loading non-cached metadata."""
@@ -335,7 +337,8 @@ class TestLoadReportMetadata:
 
         # Should be able to load with original config
         metadata = load_report_metadata(cache_mgr, config)
-        assert metadata is not None
+        assert config in metadata
+        assert metadata[config] is not None
 
 
 class TestLoadReportMetadataBatch:
