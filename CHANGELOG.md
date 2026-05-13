@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2026-05-13
+
+### Fixed
+
+- Fixed type signature of `get_data_parallel()` `ask_values` parameter from `dict[ReportConfig, dict[str, str | list[str]] | None] | None` to `dict[ReportConfig, dict[str, str | list[str]]] | None` to correctly reflect that inner dict values should not be `None`
+- Fixed api_handlers functions to properly indicate they can return `None` on all code paths
+
 ## [0.4.1] - 2026-05-01
 
 ### Fixed

@@ -26,7 +26,7 @@ def handle_upsert(
     data: list[dict],
     description: str = "",
     max_retries: int = 3,
-) -> dict:
+) -> dict | None:
     """Execute a Quickbase upsert with error handling, retry logic, and logging.
 
     Retries on rate limiting (429 errors) with exponential backoff and jitter.
@@ -85,7 +85,7 @@ def handle_delete(
     where: str,
     description: str = "",
     max_retries: int = 3,
-) -> int:
+) -> int | None:
     """Execute a Quickbase delete with error handling, logging, and rate limit retry.
 
     Only retries on rate limiting (429 errors) with exponential backoff and jitter.
@@ -144,7 +144,7 @@ def handle_query(
     options: dict | None = None,
     description: str = "",
     max_retries: int = 3,
-) -> dict:
+) -> dict | None:
     """Execute a Quickbase query with error handling, retry logic, and logging.
 
     Retries on rate limiting (429 errors) with exponential backoff and jitter.

@@ -300,7 +300,7 @@ def get_data_parallel(
     report_metadata: dict,
     cache: bool = False,
     max_workers: int = 8,
-    ask_values: dict[ReportConfig, dict[str, str | list[str]] | None] | None = None,
+    ask_values: dict[ReportConfig, dict[str, str | list[str]]] | None = None,
 ) -> dict[ReportConfig, list[dict]]:
     """Fetch multiple reports in parallel using cached report metadata.
 

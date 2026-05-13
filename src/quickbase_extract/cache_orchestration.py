@@ -123,7 +123,7 @@ def _refresh_data_cache(
     cache_manager: CacheManager,
     reports_to_refresh: list[ReportConfig],
     reasons: list[str],
-    ask_values: dict[ReportConfig, dict[str, str | list[str]] | None] | None = None,
+    ask_values: dict[ReportConfig, dict[str, str | list[str]]] | None = None,
 ) -> None:
     """Refresh data cache for specified reports.
 
@@ -164,7 +164,7 @@ def ensure_cache_freshness(
     cache_manager: CacheManager,
     report_configs_all: list[ReportConfig],
     report_configs_to_cache: list[ReportConfig] | None = None,
-    ask_values: dict[ReportConfig, dict[str, str | list[str]] | None] | None = None,
+    ask_values: dict[ReportConfig, dict[str, str | list[str]]] | None = None,
     metadata_stale_hours: float | None = None,
     data_stale_hours: float | None = None,
     cache_all_data: bool = False,
