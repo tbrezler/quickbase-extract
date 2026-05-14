@@ -3,6 +3,7 @@
 import json
 import logging
 import re
+from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from quickbase_extract.api_handlers import handle_query
@@ -13,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 def _validate_ask_values(
-    ask_values: dict[str, str | list[str]],
+    ask_values: Mapping[str, str | list[str]],
     placeholders_in_filter: set[str],
     report_config: ReportConfig,
 ) -> None:
@@ -57,7 +58,7 @@ def _validate_ask_values(
         )
 
 
-def _normalize_ask_values(ask_values: dict[str, str | list[str]]) -> dict[str, list[str]]:
+def _normalize_ask_values(ask_values: Mapping[str, str | list[str]]) -> dict[str, list[str]]:
     """Normalize all ask_values to lists for consistent processing.
 
     Converts single string values to single-element lists, leaving list values
@@ -81,7 +82,7 @@ def _normalize_ask_values(ask_values: dict[str, str | list[str]]) -> dict[str, l
 
 def _replace_ask_placeholders(
     report_filter: str,
-    ask_values: dict[str, str | list[str]],
+    ask_values: Mapping[str, str | list[str]],
     report_config: ReportConfig,
 ) -> str:
     """Replace ask-the-user placeholders in a Quickbase filter with actual values.
@@ -215,7 +216,7 @@ def get_data(
     report_config: ReportConfig,
     report_metadata: dict[ReportConfig, dict],
     cache: bool = False,
-    ask_values: dict[str, str | list[str]] | None = None,
+    ask_values: Mapping[str, str | list[str]] | None = None,
 ) -> list[dict]:
     """Query a Quickbase table for data using cached report metadata.
 
@@ -270,6 +271,8 @@ def get_data(
         where=report_filter,
         sort_by=info["sort_by"],
     )
+    if query_data is None:
+        raise ValueError(f"Query returned no response for {report_config}")
     data = query_data["data"]
 
     # Transform records
@@ -300,18 +303,19 @@ def get_data_parallel(
     report_metadata: dict,
     cache: bool = False,
     max_workers: int = 8,
-    ask_values: dict[ReportConfig, dict[str, str | list[str]]] | None = None,
+    ask_values: Mapping[ReportConfig, Mapping[str, str | list[str]]] | None = None,
 ) -> dict[ReportConfig, list[dict]]:
     """Fetch multiple reports in parallel using cached report metadata.
 
     Executes data fetching for multiple reports concurrently to improve
-    performance. Uses a fail-fast approach: if any report fetch fails,
-    all remaining tasks are cancelled and the exception is raised immediately.
+    performance. Uses a fail-fast approach: if any report fetch fails, the exception is raised
+    immediately and pending (not yet started) tasks will not be executed. Already
+    running tasks will complete before the exception propagates.
 
     Args:
         client: Quickbase API client. Should be thread-safe for concurrent use.
         cache_manager: CacheManager instance for cache operations.
-        report_config: List of ReportConfig instances to fetch.
+        report_configs: List of ReportConfig instances to fetch.
         report_metadata: Full metadata dict (from load_report_metadata_batch).
             Keyed by ReportConfig instances.
         cache: Whether to cache retrieved data. Defaults to False.
@@ -331,7 +335,7 @@ def get_data_parallel(
         KeyError: If any report_config not found in report_metadata.
         ValueError: If ask placeholders in any filter are missing values.
         Exception: First exception encountered during parallel execution.
-            All pending tasks are cancelled when an error occurs.
+            Pending tasks are not started; already running tasks complete first.
 
     Example:
         >>> cache_manager = CacheManager(cache_root=Path("my_project/dev/cache"))
@@ -440,7 +444,7 @@ def load_data_batch(
 
     Args:
         cache_manager: CacheManager instance for cache operations.
-        report_config: List of ReportConfig instances to load.
+        report_configs: List of ReportConfig instances to load.
         report_metadata: Dict mapping ReportConfig -> metadata dict
             (from load_report_metadata_batch).
 

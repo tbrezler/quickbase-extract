@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.3] - 2026-05-13
+
+### Fixed
+
+- Changed `ask_values` parameter type annotations from `dict` to `Mapping` in `get_data`, `get_data_parallel`, `_validate_ask_values`, `_normalize_ask_values`, and `_replace_ask_placeholders` to accept any mapping type and correctly reflect read-only intent; added `from collections.abc import Mapping` import
+- Added `None` guard for `query_data` before subscripting in `get_data` to prevent `TypeError` when `handle_query` returns `None`
+
 ## [0.4.2] - 2026-05-13
 
 ### Fixed
