@@ -173,6 +173,8 @@ class CacheManager:
         Raises:
             Exception: If upload fails. This is critical - Lambda /tmp is ephemeral.
         """
+        if self.s3_client is None:
+            raise RuntimeError("_sync_to_s3 called but s3_client is not configured")
         try:
             relative_path = file_path.relative_to(self.cache_root)
             s3_key = f"{self.s3_prefix}/{relative_path}" if self.s3_prefix else str(relative_path)

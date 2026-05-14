@@ -6,6 +6,7 @@ metadata and data caches. Ensures caches are up-to-date before processing.
 
 import logging
 import os
+from collections.abc import Mapping
 
 from quickbase_extract.cache_manager import DEFAULT_DATA_STALE_HOURS, DEFAULT_METADATA_STALE_HOURS, CacheManager
 from quickbase_extract.config import ReportConfig
@@ -123,7 +124,7 @@ def _refresh_data_cache(
     cache_manager: CacheManager,
     reports_to_refresh: list[ReportConfig],
     reasons: list[str],
-    ask_values: dict[ReportConfig, dict[str, str | list[str]]] | None = None,
+    ask_values: Mapping[ReportConfig, Mapping[str, str | list[str]]] | None = None,
 ) -> None:
     """Refresh data cache for specified reports.
 
@@ -132,8 +133,12 @@ def _refresh_data_cache(
         cache_manager: CacheManager instance.
         reports_to_refresh: Reports to refresh data for.
         reasons: List of reasons for refresh (for logging).
-        ask_values: Optional dict mapping ReportConfig -> ask_values dict.
+        ask_values: Optional mapping of ReportConfig -> ask_values mapping.
             Per-report "ask the user" filter values.
+            data cache. Example: {
+                ReportConfig("bq8x", "Accounts", "Python"): {"ask1": "abc"},
+                ReportConfig("bq9y", "Contacts", "Active"): {"ask1": "def"}
+            }
 
     Raises:
         CacheRefreshError: If data refresh fails.
@@ -164,7 +169,7 @@ def ensure_cache_freshness(
     cache_manager: CacheManager,
     report_configs_all: list[ReportConfig],
     report_configs_to_cache: list[ReportConfig] | None = None,
-    ask_values: dict[ReportConfig, dict[str, str | list[str]]] | None = None,
+    ask_values: Mapping[ReportConfig, Mapping[str, str | list[str]]] | None = None,
     metadata_stale_hours: float | None = None,
     data_stale_hours: float | None = None,
     cache_all_data: bool = False,
@@ -277,6 +282,7 @@ def ensure_cache_freshness(
     # Check data cache state and determine refresh needs (only if data caching enabled)
     data_needs_refresh = False
     reports_to_refresh_data = []
+    data_reasons: list[str] = []
     data_age = None
 
     if data_caching_enabled:

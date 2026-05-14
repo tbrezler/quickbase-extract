@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.4] - 2026-05-13
+
+### Fixed
+
+- Changed `ask_values` parameter type annotations from `dict` to `Mapping` in `_refresh_data_cache` and `ensure_cache_freshness` in `cache_orchestration` to match `report_data` changes and accept any mapping type
+- Fixed `data_reasons` variable in `ensure_cache_freshness` being potentially unbound if accessed outside the `data_caching_enabled` block; initialised to `[]` alongside other data cache variables
+- Added `None` guard in `CacheManager._sync_to_s3` to raise `RuntimeError` with a clear message if called when `s3_client` is not configured, resolving type checker error and preventing unclear `AttributeError` at runtime
+
 ## [0.4.3] - 2026-05-13
 
 ### Fixed
