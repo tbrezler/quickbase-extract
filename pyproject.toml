@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "quickbase-extract"
-version = "0.4.4"
+version = "0.5.0"
 description = "Extract and cache Quickbase report data with built-in error handling and S3 support"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -50,3 +50,6 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["F", "E", "W", "B", "BLE", "I", "UP", "A", "RUF", "T10"]
 ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

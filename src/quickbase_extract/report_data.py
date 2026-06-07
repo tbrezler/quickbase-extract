@@ -308,9 +308,9 @@ def get_data_parallel(
     """Fetch multiple reports in parallel using cached report metadata.
 
     Executes data fetching for multiple reports concurrently to improve
-    performance. Uses a fail-fast approach: if any report fetch fails, the exception is raised
-    immediately and pending (not yet started) tasks will not be executed. Already
-    running tasks will complete before the exception propagates.
+    performance. Uses a fail-fast approach: if any report fetch fails, all pending tasks are
+    cancelled and the exception is raised. Already running tasks will complete
+    before the exception propagates.
 
     Args:
         client: Quickbase API client. Should be thread-safe for concurrent use.
@@ -387,6 +387,7 @@ def get_data_parallel(
                 data = future.result()  # Individual fetches are logged in get_data
                 results[config] = data
             except Exception as e:
+                executor.shutdown(wait=False, cancel_futures=True)
                 logger.error(f"Failed to fetch {config.app_id}/{config.table_name}/{config.report_name}: {e}")
                 raise
 

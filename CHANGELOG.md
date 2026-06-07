@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-06-07
+
+### Changed
+
+- `handle_upsert`, `handle_delete`, and `handle_query` in `api_handlers.py` now delegate
+  rate limit retry logic to the session layer (`quickbase-api`), which correctly respects
+  the `retry-after` response header on all HTTP methods including POST and DELETE
+- Return type of `handle_upsert` corrected from `dict | None` to `dict`
+- Return type of `handle_delete` corrected from `int | None` to `int`
+- Return type of `handle_query` corrected from `dict | None` to `dict`
+
+### Fixed
+
+- `get_data_parallel` now correctly cancels pending futures on failure, matching the
+  behaviour of `get_report_metadata_parallel` and its own documented fail-fast behaviour
+
+### Removed
+
+- `max_retries` parameter removed from `handle_upsert`, `handle_delete`, and `handle_query`
+  — retry behaviour is now configured at the session level in `quickbase-api`
+
+### Breaking Changes
+
+- `max_retries` parameter has been removed from `handle_upsert`, `handle_delete`, and
+  `handle_query`. Any callers passing this argument will raise a `TypeError` and must be
+  updated.
+
 ## [0.4.4] - 2026-05-13
 
 ### Fixed
