@@ -73,7 +73,7 @@ def fetch_report_metadata_api(
     return {
         "table_id": table_id,
         "field_label": filtered_field_label,
-        "fields": query.get("fields", []),
+        "fields": fields,
         "filter": query.get("filter", ""),
         "sort_by": query.get("sortBy", []),
         "group_by": query.get("groupBy", []),
@@ -173,7 +173,7 @@ def get_report_metadata_parallel(
     Args:
         client: Quickbase API client. Should be thread-safe for concurrent use.
         cache_manager: CacheManager instance for cache operations.
-        report_config: List of ReportConfig instances to fetch.
+        report_configs: List of ReportConfig instances to fetch.
         cache: Whether to cache retrieved data. Defaults to True.
         max_workers: Maximum number of concurrent threads. Default is 8.
             Adjust based on API rate limits and system resources.
@@ -258,12 +258,11 @@ def load_report_metadata(
         >>> metadata = load_report_metadata(cache_manager, config)
         >>> config_metadata = metadata[config]
     """
-    # Normalize names to match how they were saved
-    app_name = normalize_name(report_config.app_name)
-    table_name = normalize_name(report_config.table_name)
-    report_name = normalize_name(report_config.report_name)
-
-    md_path = cache_manager.get_metadata_path(app_name, table_name, report_name)
+    md_path = cache_manager.get_metadata_path(
+        report_config.app_name,
+        report_config.table_name,
+        report_config.report_name,
+    )
 
     if not md_path.exists():
         raise FileNotFoundError(
@@ -285,7 +284,7 @@ def load_report_metadata_batch(
 
     Args:
         cache_manager: CacheManager instance for cache operations.
-        report_config: List of ReportConfig instances to load.
+        report_configs: List of ReportConfig instances to load.
 
     Returns:
         Dict mapping ReportConfig -> metadata dict.
@@ -334,8 +333,8 @@ def filter_metadata_by_table(
 
     Example:
         >>> metadata = load_report_metadata_batch(cache_manager, configs)
-        >>> runs_md = filter_metadata_by_app_table(metadata, "Billing Runs")
-        >>> accounts = filter_metadata_by_app_table(metadata, "Accounts", app_name="date_lake")
+        >>> runs_md = filter_metadata_by_table(metadata, "Billing Runs")
+        >>> accounts = filter_metadata_by_table(metadata, "Accounts", app_name="date_lake")
     """
     if app_name:
         # Filter by both app and table

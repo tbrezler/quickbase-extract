@@ -2,8 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.5.1] - 2026-06-14
+
+### Fixed
+
+- `handle_query`: replaced `options` dict parameter with individual `skip`, `top`, and
+  `compare_with_app_local_time` parameters to match updated `quickbase-api` signature
+- `handle_delete`: now correctly extracts `numberDeleted` from dict response returned by
+  updated `quickbase-api` (previously expected `int`)
+- `complete_cache_refresh`: now passes `cache_all_data=True` to `ensure_cache_freshness`,
+  fixing a silent no-op when `force_data=True` or `force_all=True`
+- `get_data`: now passes `group_by` from report metadata to `handle_query`
+- `fetch_report_metadata_api`: removed redundant `query.get("fields", [])` call in return
+  dict; uses already-extracted `fields` variable
+- `load_report_metadata`: removed redundant pre-normalization before `get_metadata_path`;
+  names are normalized internally by `CacheManager`
+- `get_data`: simplified redundant `ask_values is not None and ask_values != {}` check to `if ask_values`
+- Corrected `report_config` → `report_configs` parameter name in docstrings for
+  `get_report_metadata_parallel`, `load_report_metadata_batch`, and `get_data_parallel`
+- Corrected wrong function name in `filter_metadata_by_table` docstring example
+- Added missing docstring to `has_report_data`
 
 ## [0.5.0] - 2026-06-07
 

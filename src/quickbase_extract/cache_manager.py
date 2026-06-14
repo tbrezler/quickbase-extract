@@ -330,6 +330,15 @@ class CacheManager:
         return path.exists()
 
     def has_report_data(self, app_name: str, table_name: str, report_name: str) -> bool:
-        """Check if data for a specific report exists in cache."""
+        """Check if data for a specific report exists in cache.
+
+        Args:
+            app_name: Application name.
+            table_name: Table name.
+            report_name: Report name.
+
+        Returns:
+            True if report data file exists, False otherwise.
+        """
         path = self.get_data_path(app_name, table_name, report_name)
         return path.exists()

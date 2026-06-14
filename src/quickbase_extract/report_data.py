@@ -254,7 +254,7 @@ def get_data(
 
     # Process filter with ask values if provided
     report_filter = info["filter"]
-    if ask_values is not None and ask_values != {}:
+    if ask_values:
         original_filter = report_filter
         report_filter = _replace_ask_placeholders(report_filter, ask_values, report_config)
         logger.debug(
@@ -270,6 +270,7 @@ def get_data(
         select=info["fields"],
         where=report_filter,
         sort_by=info["sort_by"],
+        group_by=info["group_by"],
     )
     if query_data is None:
         raise ValueError(f"Query returned no response for {report_config}")

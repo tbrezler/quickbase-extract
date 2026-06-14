@@ -94,7 +94,8 @@ def handle_delete(
         is a no-op in Quickbase.
     """
     try:
-        deleted = client.delete_records(table_id, where=where)
+        result = client.delete_records(table_id, where=where)
+        deleted = result["numberDeleted"]
         logger.info(f"Delete {description}: {deleted} records deleted")
         return deleted
 
@@ -112,7 +113,9 @@ def handle_query(
     where: str | None = None,
     sort_by: list[dict] | None = None,
     group_by: list[dict] | None = None,
-    options: dict | None = None,
+    skip: int | None = None,
+    top: int | None = None,
+    compare_with_app_local_time: bool | None = None,
     description: str = "",
 ) -> dict:
     """Execute a Quickbase query with error handling and logging.
@@ -128,8 +131,9 @@ def handle_query(
         where: A Quickbase query string (e.g., "{12.EX.'VPF'}").
         sort_by: Sort order, e.g., [{"fieldId": 6, "order": "ASC"}].
         group_by: Grouping, e.g., [{"fieldId": 6, "grouping": "equal-values"}].
-        options: Additional options, e.g.,
-            {"skip": 0, "top": 100, "compareWithAppLocalTime": False}.
+        skip: Number of records to skip for pagination.
+        top: Maximum number of records to return.
+        compare_with_app_local_time: If True, compares dates using the app's local time.
         description: Human-readable description for logging. Defaults to empty string.
 
     Returns:
@@ -154,7 +158,9 @@ def handle_query(
             where=where,
             sort_by=sort_by,
             group_by=group_by,
-            options=options,
+            skip=skip,
+            top=top,
+            compare_with_app_local_time=compare_with_app_local_time,
         )
         return result
 

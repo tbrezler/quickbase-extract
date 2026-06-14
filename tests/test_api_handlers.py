@@ -112,7 +112,8 @@ class TestHandleQuery:
             where="{8.EX.'Active'}",
             sort_by=[{"fieldId": 6, "order": "ASC"}],
             group_by=[{"fieldId": 8}],
-            options={"skip": 0, "top": 100},
+            skip=0,
+            top=100,
             description="active users",
         )
 

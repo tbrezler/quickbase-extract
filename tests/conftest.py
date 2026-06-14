@@ -77,7 +77,7 @@ def mock_qb_api():
     }
 
     # Mock delete_records
-    client.delete_records.return_value = 5
+    client.delete_records.return_value = {"numberDeleted": 5}
 
     return client
 

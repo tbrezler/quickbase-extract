@@ -104,6 +104,7 @@ def complete_cache_refresh(
         client=client,
         cache_manager=cache_manager,
         report_configs_all=report_configs,
+        cache_all_data=True,
         force_all=force_all,
         force_metadata=force_metadata,
         force_data=force_data,
