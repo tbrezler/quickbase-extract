@@ -18,7 +18,7 @@ class TestCacheManagerInit:
     def test_init_requires_cache_root(self):
         """Test that cache_root is required."""
         with pytest.raises(TypeError):
-            CacheManager()
+            CacheManager()  # type: ignore[call-arg]
 
     def test_init_with_cache_root(self, temp_cache_dir):
         """Test initialization with cache_root."""

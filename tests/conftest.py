@@ -31,8 +31,8 @@ def mock_qb_api():
         "Status": "8",
     }
 
-    # Mock get_reports
-    client.get_reports.return_value = [
+    # Mock get_table_reports
+    client.get_table_reports.return_value = [
         {"id": "rptABC123", "name": "Python"},
         {"id": "rptDEF456", "name": "Default"},
     ]

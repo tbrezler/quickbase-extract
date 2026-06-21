@@ -47,7 +47,7 @@ def fetch_report_metadata_api(
     """
     table_id = client.get_table_id(app_id, table_name=table_name)
     field_label = client.get_field_label_id_map(table_id)
-    reports = client.get_reports(table_id)
+    reports = client.get_table_reports(table_id)
 
     # Find matching report(s)
     report_matches = [r for r in reports if r["name"] == report_name]

@@ -68,7 +68,7 @@ class TestFetchReportMetadataApi:
 
     def test_fetch_report_not_found(self, mock_qb_api):
         """Test error when report not found."""
-        mock_qb_api.get_reports.return_value = [
+        mock_qb_api.get_table_reports.return_value = [
             {"id": "rptABC", "name": "Default"},
         ]
 
@@ -83,7 +83,7 @@ class TestFetchReportMetadataApi:
     def test_multiple_reports_same_name_warning(self, mock_qb_api, caplog):
         """Test warning when multiple reports have the same name."""
         # Mock multiple reports with same name (edge case)
-        mock_qb_api.get_reports.return_value = [
+        mock_qb_api.get_table_reports.return_value = [
             {"id": "rptABC123", "name": "Python"},
             {"id": "rptDEF456", "name": "Python"},  # Duplicate name
             {"id": "rptGHI789", "name": "Default"},
@@ -157,7 +157,7 @@ class TestGetReportMetadata:
         """Test error when report not found."""
         cache_mgr = CacheManager(cache_root=temp_cache_dir)
 
-        mock_qb_api.get_reports.return_value = [
+        mock_qb_api.get_table_reports.return_value = [
             {"id": "rptABC", "name": "Default"},
         ]
 
@@ -191,7 +191,7 @@ class TestGetReportMetadata:
         # Verify call order
         assert mock_qb_api.get_table_id.called
         assert mock_qb_api.get_field_label_id_map.called
-        assert mock_qb_api.get_reports.called
+        assert mock_qb_api.get_table_reports.called
         assert mock_qb_api.get_report.called
 
     def test_cache_disabled(self, temp_cache_dir, mock_qb_api, sample_report_configs, caplog):

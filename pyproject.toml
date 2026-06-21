@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "quickbase-extract"
-version = "0.5.1"
+version = "0.5.2"
 description = "Extract and cache Quickbase report data with built-in error handling and S3 support"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -23,7 +23,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "quickbase-api>=0.5.0",
+    "quickbase-api>=0.5.1",
     "boto3>=1.26.0",
 ]
 

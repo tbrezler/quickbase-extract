@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] - 2026-06-21
+
+- `fetch_report_metadata_api`: client.get_reports updated to client.get_table_reports for quickbase-api update.
+
 ## [0.5.1] - 2026-06-14
 
 ### Fixed
